@@ -126,6 +126,19 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * While positive, we stop re-planning and let the current path run. Counted down per tick.
      */
     private int rerouteCommitTicks;
+    /**
+     * Our own tick counter, used only for churn bookkeeping.
+     */
+    private int builderTick;
+    /**
+     * Per-position record of the builder alternating between breaking and placing.
+     */
+    private final Map<Long, ChurnRecord> churn = new HashMap<>();
+    /**
+     * Positions being left alone because they were detected churning, mapped to the tick at which
+     * they become eligible again.
+     */
+    private final Map<Long, Integer> churnBlacklist = new HashMap<>();
 
     public BuilderProcess(Baritone baritone) {
         super(baritone);
@@ -176,6 +189,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         this.lastGoal = null;
         this.consecutiveReroutes = 0;
         this.rerouteCommitTicks = 0;
+        this.churn.clear();
+        this.churnBlacklist.clear();
         this.layer = Baritone.settings().startAtLayer.value;
         this.stopAtHeight = schematic.heightY();
         if (Baritone.settings().buildOnlySelection.value && buildingSelectionSchematic) {  // currently redundant but safer maybe
@@ -328,6 +343,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     BlockState curr = bcc.bsi.get0(x, y, z);
                     if (!(curr.getBlock() instanceof AirBlock) && !(curr.getBlock() == Blocks.WATER || curr.getBlock() == Blocks.LAVA) && !valid(curr, desired, false)) {
                         BetterBlockPos pos = new BetterBlockPos(x, y, z);
+                        if (isChurnBlacklisted(pos)) {
+                            continue; // detected looping on this block; leave it be
+                        }
                         Optional<Rotation> rot = RotationUtils.reachable(ctx, pos, ctx.playerController().getBlockReachDistance());
                         if (rot.isPresent()) {
                             return Optional.of(new Tuple<>(pos, rot.get()));
@@ -374,6 +392,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                         if (pathNeedsOpen(new BetterBlockPos(x, y, z))) {
                             continue; // we're about to walk through here; don't wall ourselves in
                         }
+                        if (isChurnBlacklisted(new BetterBlockPos(x, y, z))) {
+                            continue; // detected looping on this block; leave it be
+                        }
                         desirableOnHotbar.add(desired);
                         Optional<Placement> opt = possibleToPlace(desired, x, y, z, bcc.bsi);
                         if (opt.isPresent()) {
@@ -384,6 +405,92 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * Tracks whether a position is being repeatedly broken and re-placed.
+     */
+    private static final class ChurnRecord {
+        boolean lastWasPlace;
+        int alternations;
+        int lastTick;
+    }
+
+    /**
+     * Records that we're about to break or place at a position, and reports whether that position
+     * is stuck in a break/place loop.
+     * <p>
+     * Only <i>alternations</i> count. Breaking a block holds the attack input down for many
+     * consecutive ticks, so counting raw actions would trip immediately on completely normal
+     * mining. A genuine loop looks like place, break, place, break at one position in quick
+     * succession.
+     *
+     * @param pos     The position being acted on
+     * @param placing {@code true} if placing, {@code false} if breaking
+     * @return {@code true} if this position has just been detected as looping
+     */
+    private boolean noteBlockAction(BetterBlockPos pos, boolean placing) {
+        if (!Baritone.settings().builderChurnDetection.value) {
+            return false;
+        }
+        long hash = BetterBlockPos.longHash(pos);
+        ChurnRecord record = churn.get(hash);
+        if (record == null) {
+            record = new ChurnRecord();
+            record.lastWasPlace = placing;
+            record.lastTick = builderTick;
+            churn.put(hash, record);
+            return false;
+        }
+        if (builderTick - record.lastTick > Baritone.settings().builderChurnWindowTicks.value) {
+            // too long ago to be part of the same loop; start counting again
+            record.alternations = 0;
+        } else if (record.lastWasPlace != placing) {
+            record.alternations++;
+        }
+        record.lastWasPlace = placing;
+        record.lastTick = builderTick;
+
+        if (record.alternations >= Baritone.settings().builderChurnThreshold.value) {
+            int until = builderTick + Baritone.settings().builderChurnCooldownTicks.value;
+            churnBlacklist.put(hash, until);
+            churn.remove(hash);
+            logDirect("Stuck breaking and replacing " + pos + "; leaving it alone for a bit and re-routing");
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether this position is currently being left alone because it was detected churning.
+     */
+    private boolean isChurnBlacklisted(BetterBlockPos pos) {
+        if (churnBlacklist.isEmpty()) {
+            return false;
+        }
+        Integer until = churnBlacklist.get(BetterBlockPos.longHash(pos));
+        if (until == null) {
+            return false;
+        }
+        if (builderTick >= until) {
+            churnBlacklist.remove(BetterBlockPos.longHash(pos));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Abandons the current plan so the next tick picks different work, skipping whatever we just
+     * blacklisted.
+     */
+    private PathingCommand forceRerouteAfterChurn(boolean calcFailed, boolean isSafeToCancel, int recursions) {
+        incorrectPositions = null;
+        lastGoal = null;
+        consecutiveReroutes = 0;
+        rerouteCommitTicks = 0;
+        churn.clear();
+        churnBlacklist.clear();
+        return onTick(calcFailed, isSafeToCancel, recursions + 1);
     }
 
     /**
@@ -519,6 +626,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             return new PathingCommand(null, PathingCommandType.SET_GOAL_AND_PATH);
         }
         approxPlaceable = approxPlaceable(36);
+        builderTick++;
         if (baritone.getInputOverrideHandler().isInputForcedDown(Input.CLICK_LEFT)) {
             ticks = 5;
         } else {
@@ -634,6 +742,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 baritone.getInputOverrideHandler().setInputForceState(Input.SNEAK, true);
             }
             if (ctx.isLookingAt(pos) || ctx.playerRotations().isReallyCloseTo(rot)) {
+                if (noteBlockAction(pos, false)) {
+                    return forceRerouteAfterChurn(calcFailed, isSafeToCancel, recursions);
+                }
                 baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_LEFT, true);
             }
             return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
@@ -646,6 +757,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             ctx.player().getInventory().setSelectedSlot(toPlace.get().hotbarSelection);
             baritone.getInputOverrideHandler().setInputForceState(Input.SNEAK, true);
             if ((ctx.isLookingAt(toPlace.get().placeAgainst) && ((BlockHitResult) ctx.objectMouseOver()).getDirection().equals(toPlace.get().side)) || ctx.playerRotations().isReallyCloseTo(rot)) {
+                // the block actually being created is the one on the far side of the face we click
+                BetterBlockPos placedAt = BetterBlockPos.from(toPlace.get().placeAgainst.relative(toPlace.get().side));
+                if (noteBlockAction(placedAt, true)) {
+                    return forceRerouteAfterChurn(calcFailed, isSafeToCancel, recursions);
+                }
                 baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
             }
             return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
@@ -882,7 +998,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     int y = center.y + dy;
                     int z = center.z + dz;
                     BlockState desired = bcc.getSchematic(x, y, z, bcc.bsi.get0(x, y, z));
-                    if (desired != null && !isUnobtainable(desired)) {
+                    if (desired != null && !isUnobtainable(desired) && !isChurnBlacklisted(new BetterBlockPos(x, y, z))) {
                         // we care about this position
                         BetterBlockPos pos = new BetterBlockPos(x, y, z);
                         if (valid(bcc.bsi.get0(x, y, z), desired, false)) {
@@ -916,6 +1032,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     // only unobtainable work is left.
                     if (isUnobtainable(schematic.desiredState(x, y, z, current, this.approxPlaceable))) {
                         continue;
+                    }
+                    if (isChurnBlacklisted(new BetterBlockPos(blockX, blockY, blockZ))) {
+                        continue; // temporarily left alone after a break/place loop
                     }
                     if (bcc.bsi.worldContainsLoadedChunk(blockX, blockZ)) { // check if its in render distance, not if its in cache
                         // we can directly observe this block, it is in render distance

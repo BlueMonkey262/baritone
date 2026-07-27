@@ -1112,6 +1112,32 @@ public final class Settings {
     public final Setting<Integer> builderRerouteCommitTicks = new Setting<>(100);
 
     /**
+     * Detect the builder breaking and re-placing the same block over and over, and make it leave
+     * that block alone for a while.
+     * <p>
+     * This happens when pathing needs a block broken to move through and the schematic wants one
+     * there, so the two fight. Rather than trying to enumerate the causes, this watches for the
+     * symptom -- a single position alternating between break and place -- and breaks the cycle.
+     */
+    public final Setting<Boolean> builderChurnDetection = new Setting<>(true);
+
+    /**
+     * How many break/place alternations at one position count as a loop. Note this counts changes
+     * of action, not ticks, since breaking a block holds the attack input down for many ticks.
+     */
+    public final Setting<Integer> builderChurnThreshold = new Setting<>(6);
+
+    /**
+     * Alternations further apart than this many ticks are treated as unrelated rather than a loop.
+     */
+    public final Setting<Integer> builderChurnWindowTicks = new Setting<>(80);
+
+    /**
+     * How long to leave a block alone once it's been detected churning.
+     */
+    public final Setting<Integer> builderChurnCooldownTicks = new Setting<>(600);
+
+    /**
      * Only build the selected part of schematics
      */
     public final Setting<Boolean> buildOnlySelection = new Setting<>(false);
