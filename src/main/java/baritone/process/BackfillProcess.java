@@ -18,6 +18,7 @@
 package baritone.process;
 
 import baritone.Baritone;
+import baritone.api.pathing.movement.IMovement;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
 import baritone.api.utils.input.Input;
@@ -71,6 +72,17 @@ public final class BackfillProcess extends BaritoneProcessHelper {
             return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
         }
         baritone.getInputOverrideHandler().clearAllKeys();
+        // Restrict placement to junk blocks for the duration of this tick, so backfilling a tunnel
+        // can't quietly consume the materials we're trying to build with.
+        baritone.getInventoryBehavior().setThrowawayRestriction(Baritone.settings().backfillBlocks.value);
+        try {
+            return tickPlacement();
+        } finally {
+            baritone.getInventoryBehavior().setThrowawayRestriction(null);
+        }
+    }
+
+    private PathingCommand tickPlacement() {
         for (BlockPos toPlace : toFillIn()) {
             MovementState fake = new MovementState();
             switch (MovementHelper.attemptToPlaceABlock(fake, baritone, toPlace, false, false)) {
@@ -94,7 +106,11 @@ public final class BackfillProcess extends BaritoneProcessHelper {
         if (!ctx.getSelectedBlock().isPresent() || !baritone.getPathingBehavior().isPathing()) {
             return;
         }
-        blocksToReplace.put(ctx.getSelectedBlock().get(), ctx.world().getBlockState(ctx.getSelectedBlock().get()));
+        BlockPos breaking = ctx.getSelectedBlock().get();
+        if (baritone.getBuilderProcess().managesPosition(breaking)) {
+            return; // inside an active build; the builder owns this position, not us
+        }
+        blocksToReplace.put(breaking, ctx.world().getBlockState(breaking));
     }
 
     public List<BlockPos> toFillIn() {
@@ -104,17 +120,38 @@ public final class BackfillProcess extends BaritoneProcessHelper {
                 .filter(pos -> ctx.world().getBlockState(pos).getBlock() == Blocks.AIR)
                 .filter(pos -> baritone.getBuilderProcess().placementPlausible(pos, Blocks.DIRT.defaultBlockState()))
                 .filter(pos -> !partOfCurrentMovement(pos))
+                .filter(pos -> !baritone.getBuilderProcess().managesPosition(pos))
                 .sorted(Comparator.<BlockPos>comparingDouble(ctx.playerFeet()::distSqr).reversed())
                 .collect(Collectors.toList());
     }
 
+    /**
+     * How many movements ahead of the player to protect from backfilling.
+     */
+    private static final int LOOKAHEAD_MOVEMENTS = 10;
+
+    /**
+     * Whether the path still needs this block to be open.
+     * <p>
+     * This deliberately looks at upcoming movements, not just the one being executed. Checking only
+     * the current movement means a hole dug for a movement a couple of steps away gets filled back
+     * in immediately, and then has to be dug out again -- which reads as the bot breaking a block
+     * and instantly replacing it.
+     */
     private boolean partOfCurrentMovement(BlockPos pos) {
         PathExecutor exec = baritone.getPathingBehavior().getCurrent();
         if (exec == null || exec.finished() || exec.failed()) {
             return false;
         }
-        Movement movement = (Movement) exec.getPath().movements().get(exec.getPosition());
-        return Arrays.asList(movement.toBreakAll()).contains(pos);
+        List<IMovement> movements = exec.getPath().movements();
+        int from = exec.getPosition();
+        int to = Math.min(movements.size(), from + LOOKAHEAD_MOVEMENTS);
+        for (int i = from; i < to; i++) {
+            if (Arrays.asList(((Movement) movements.get(i)).toBreakAll()).contains(pos)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

@@ -18,6 +18,7 @@
 package baritone.api.process;
 
 import baritone.api.schematic.ISchematic;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
@@ -64,6 +65,31 @@ public interface IBuilderProcess extends IBaritoneProcess {
     void pause();
 
     boolean isPaused();
+
+    /**
+     * Whether the schematic currently being built uses this block anywhere.
+     * <p>
+     * Used to decide whether a block item in the inventory is junk (mined rubble) or a build
+     * material. The answer is computed once per build and cached; if the schematic is too large to
+     * scan cheaply, this conservatively returns {@code true} so that nothing is discarded.
+     *
+     * @param block A block
+     * @return {@code true} if the schematic wants this block, or if we can't tell
+     */
+    boolean schematicWants(Block block);
+
+    /**
+     * Whether this position falls inside the schematic currently being built.
+     * <p>
+     * Anything inside the build area belongs to the builder alone. Other processes must leave those
+     * positions alone, or they end up fighting: backfill patching a hole the builder dug, the
+     * builder breaking the patch because it isn't the block the schematic asked for, and so on
+     * forever.
+     *
+     * @param pos A position in the world
+     * @return {@code true} if a build is active and this position is within its bounds
+     */
+    boolean managesPosition(BlockPos pos);
 
     void resume();
 

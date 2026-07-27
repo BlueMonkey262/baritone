@@ -70,6 +70,7 @@ public class Baritone implements IBaritone {
     private final LookBehavior lookBehavior;
     private final InventoryBehavior inventoryBehavior;
     private final InputOverrideHandler inputOverrideHandler;
+    private final ContainerInteractionBehavior containerInteractionBehavior;
 
     private final FollowProcess followProcess;
     private final MineProcess mineProcess;
@@ -79,6 +80,7 @@ public class Baritone implements IBaritone {
     private final ExploreProcess exploreProcess;
     private final FarmProcess farmProcess;
     private final InventoryPauserProcess inventoryPauserProcess;
+    private final RestockProcess restockProcess;
     private final IElytraProcess elytraProcess;
 
     private final PathingControlManager pathingControlManager;
@@ -110,6 +112,7 @@ public class Baritone implements IBaritone {
             this.inventoryBehavior    = this.registerBehavior(InventoryBehavior::new);
             this.inputOverrideHandler = this.registerBehavior(InputOverrideHandler::new);
             this.registerBehavior(WaypointBehavior::new);
+            this.containerInteractionBehavior = this.registerBehavior(ContainerInteractionBehavior::new);
         }
 
         this.pathingControlManager = new PathingControlManager(this);
@@ -118,6 +121,9 @@ public class Baritone implements IBaritone {
             this.mineProcess             = this.registerProcess(MineProcess::new);
             this.customGoalProcess       = this.registerProcess(CustomGoalProcess::new); // very high iq
             this.getToBlockProcess       = this.registerProcess(GetToBlockProcess::new);
+            // must be registered before the builder: registerProcess calls onLostControl
+            // immediately, and BuilderProcess#onLostControl asks the restock process to reset
+            this.restockProcess          = this.registerProcess(RestockProcess::new);
             this.builderProcess          = this.registerProcess(BuilderProcess::new);
             this.exploreProcess          = this.registerProcess(ExploreProcess::new);
             this.farmProcess             = this.registerProcess(FarmProcess::new);
@@ -208,6 +214,15 @@ public class Baritone implements IBaritone {
 
     public InventoryPauserProcess getInventoryPauserProcess() {
         return this.inventoryPauserProcess;
+    }
+
+    @Override
+    public RestockProcess getRestockProcess() {
+        return this.restockProcess;
+    }
+
+    public ContainerInteractionBehavior getContainerInteractionBehavior() {
+        return this.containerInteractionBehavior;
     }
 
     @Override

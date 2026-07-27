@@ -488,6 +488,50 @@ public final class Settings {
     public final Setting<Boolean> rightClickContainerOnArrival = new Setting<>(true);
 
     /**
+     * Allow the builder to restock build materials from shulker boxes registered with {@code #addbox}.
+     * <p>
+     * With this off, the builder behaves exactly as it did before: it pauses when it runs out.
+     */
+    public final Setting<Boolean> restockFromBoxes = new Setting<>(true);
+
+    /**
+     * Don't consider registered shulker boxes further away than this when restocking.
+     */
+    public final Setting<Integer> restockMaxDistance = new Setting<>(768);
+
+    /**
+     * Before starting a build, walk to any registered shulker box whose contents we've never
+     * actually looked at and index it, so material lookups are based on reality rather than guesses.
+     */
+    public final Setting<Boolean> restockIndexBeforeBuild = new Setting<>(true);
+
+    /**
+     * How many extra stacks beyond the immediate shortfall to grab while we're at the box, so that
+     * we don't have to walk back again straight away.
+     */
+    public final Setting<Integer> restockExtraStacks = new Setting<>(1);
+
+    /**
+     * How long to wait, in ticks, for the server to open a container or send its contents before
+     * giving up on that box and trying the next one.
+     */
+    public final Setting<Integer> restockOpenTimeoutTicks = new Setting<>(100);
+
+    /**
+     * While at a shulker box, deposit blocks that the schematic has no use for.
+     * <p>
+     * Only ever discards block items that appear nowhere in the schematic. Tools, weapons, armour,
+     * food and anything on {@link #acceptableThrowawayItems} are always kept, and everything is put
+     * into the box rather than thrown away, so a bad judgement call is recoverable.
+     */
+    public final Setting<Boolean> restockDumpJunk = new Setting<>(true);
+
+    /**
+     * Only bother depositing junk once free inventory slots drop below this.
+     */
+    public final Setting<Integer> restockDumpWhenFreeSlotsBelow = new Setting<>(4);
+
+    /**
      * When running a goto towards a nether portal block, walk all the way into the portal
      * instead of stopping one block before.
      */
@@ -667,6 +711,27 @@ public final class Settings {
      * Fill in blocks behind you
      */
     public final Setting<Boolean> backfill = new Setting<>(false);
+
+    /**
+     * The only blocks {@link #backfill} is allowed to place.
+     * <p>
+     * Without this it fills holes with whatever throwaway block is to hand, which can mean spending
+     * your build materials on patching tunnels. Restricting it to junk stone keeps backfill to the
+     * sort of rubble it dug out in the first place.
+     */
+    public final Setting<List<Block>> backfillBlocks = new Setting<>(new ArrayList<>(Arrays.asList(
+            Blocks.COBBLESTONE,
+            Blocks.STONE,
+            Blocks.ANDESITE,
+            Blocks.DIORITE,
+            Blocks.GRANITE,
+            Blocks.TUFF,
+            Blocks.DEEPSLATE,
+            Blocks.COBBLED_DEEPSLATE,
+            Blocks.DIRT,
+            Blocks.GRAVEL,
+            Blocks.NETHERRACK
+    )));
 
     /**
      * Shows popup message in the upper right corner, similarly to when you make an advancement
@@ -1029,6 +1094,22 @@ public final class Settings {
      * If a layer is unable to be constructed, just skip it.
      */
     public final Setting<Boolean> skipFailedLayers = new Setting<>(false);
+
+    /**
+     * If the builder changes its mind about which goal to path to this many times in a row, stop
+     * re-planning for a while and just execute whatever path it currently has.
+     * <p>
+     * Baritone has no loop detection for the builder: it reassembles its goal set every tick, so an
+     * unreachable target can be re-picked indefinitely and it stands there recalculating. Committing
+     * to the current route for a moment breaks that cycle. Set to 0 to disable.
+     */
+    public final Setting<Integer> builderMaxReroutes = new Setting<>(5);
+
+    /**
+     * How many ticks to stick with the current path once {@link #builderMaxReroutes} trips, before
+     * allowing normal re-planning again.
+     */
+    public final Setting<Integer> builderRerouteCommitTicks = new Setting<>(100);
 
     /**
      * Only build the selected part of schematics

@@ -47,6 +47,7 @@ Commands in Baritone:
 - `wp` for waypoints. A "tag" is like "home" (created automatically on right clicking a bed) or "death" (created automatically on death) or "user" (has to be created manually). So you might want `#wp save user coolbiome`, then to set the goal `#wp goal coolbiome` then `#path` to path to it. For death, `#wp goal death` will list waypoints under the "death" tag (remember stuff is clickable!)
 - `build` to build a schematic. `build blah.schematic` will load `schematics/blah.schematic` and build it with the origin being your player feet. `build blah.schematic x y z` to set the origin. Any of those can be relative to your player (`~ 69 ~-420` would build at x=player x, y=69, z=player z-420).
 - `schematica` to build the schematic that is currently open in schematica
+- `addbox` to register the shulker box you're looking at as a material source for building. `addbox 50` registers every shulker box within 50 blocks. While building, Baritone will walk to a registered box, open it, take what it's run out of, and carry on instead of stalling. `removebox` to deregister one, `listboxes` to see them all and what they last held, `indexboxes` to go and check the contents of boxes it hasn't looked inside yet. Requires `allowInventory true`, since restocked items arrive in your main inventory and have to be moved to the hotbar. See FORK-NOTES.md.
 - `tunnel` to dig and make a tunnel, 1x2. It will only deviate from the straight line if necessary such as to avoid lava. For a dumber tunnel that is really just cleararea, you can `tunnel 3 2 100`, to clear an area 3 high, 2 wide, and 100 deep.
 - `farm` to automatically harvest, replant, or bone meal crops. Use `farm <range>` or `farm <range> <waypoint>` to limit the max distance from the starting point or a waypoint.
 - `axis` to go to an axis or diagonal axis at y=120 (`axisHeight` is a configurable setting, defaults to 120).
@@ -79,8 +80,10 @@ There are about a hundred settings, but here are some fun / interesting / import
 - `avoidance` (avoidance of mobs / mob spawners)
 - `legitMine`
 - `followRadius`
-- `backfill` (fill in tunnels behind you)
+- `backfill` (fill in tunnels behind you) and `backfillBlocks` (which blocks it's allowed to use)
 - `buildInLayers`
+- `restockFromBoxes` (fetch materials from shulker boxes registered with `addbox`) and friends: `restockMaxDistance`, `restockIndexBeforeBuild`, `restockDumpJunk`
+- `builderMaxReroutes` (stop the builder dithering between goals instead of committing to a path)
 - `buildRepeatDistance` and `buildRepeatDirection`
 - `worldExploringChunkOffset`
 - `acceptableThrowawayItems`

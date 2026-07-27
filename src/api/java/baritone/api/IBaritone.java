@@ -65,6 +65,12 @@ public interface IBaritone {
     IBuilderProcess getBuilderProcess();
 
     /**
+     * @return The {@link IRestockProcess} instance
+     * @see IRestockProcess
+     */
+    IRestockProcess getRestockProcess();
+
+    /**
      * @return The {@link IExploreProcess} instance
      * @see IExploreProcess
      */

@@ -37,4 +37,9 @@ public interface IWorldData {
      */
     IWaypointCollection getWaypoints();
 
+    /**
+     * @return The registered restock boxes for this world
+     */
+    IRestockBoxCollection getRestockBoxes();
+
 }

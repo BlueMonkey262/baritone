@@ -1,5 +1,11 @@
 # Baritone
 
+> **This is a private fork of [cabaletta/baritone](https://github.com/cabaletta/baritone).**
+> It adds automatic restocking from shulker boxes during `#build` (`#addbox`), plus fixes for
+> several builder/backfill conflicts that made long builds stall or loop.
+> See **[FORK-NOTES.md](FORK-NOTES.md)** for everything that differs from upstream.
+
+
 <p align="center">
   <a href="https://github.com/cabaletta/baritone/releases/"><img src="https://img.shields.io/github/downloads/cabaletta/baritone/total.svg" alt="GitHub All Releases"/></a>
 </p>

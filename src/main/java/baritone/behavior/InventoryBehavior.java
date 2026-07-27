@@ -40,6 +40,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.OptionalInt;
 import java.util.Random;
 import java.util.function.Predicate;
@@ -168,7 +169,35 @@ public final class InventoryBehavior extends Behavior implements Helper {
         return false;
     }
 
+    /**
+     * When set, throwaway selection is limited to these blocks. Used by backfill so it patches
+     * holes with rubble rather than spending build materials. Set and cleared within a single
+     * tick by the caller; null means no restriction.
+     */
+    private List<Block> throwawayRestriction;
+
+    /**
+     * Restricts which blocks {@link #selectThrowawayForLocation} may choose, until cleared.
+     *
+     * @param blocks The only blocks that may be selected, or {@code null} for no restriction
+     */
+    public void setThrowawayRestriction(List<Block> blocks) {
+        this.throwawayRestriction = blocks;
+    }
+
     public boolean selectThrowawayForLocation(boolean select, int x, int y, int z) {
+        List<Block> restriction = this.throwawayRestriction;
+        if (restriction != null) {
+            // deliberately ignores the schematic-aware branches below: a restricted caller wants
+            // one of these blocks or nothing at all
+            for (Block block : restriction) {
+                if (throwaway(select, stack -> stack.getItem() instanceof BlockItem
+                        && ((BlockItem) stack.getItem()).getBlock() == block)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         BlockState maybe = baritone.getBuilderProcess().placeAt(x, y, z, baritone.bsi.get0(x, y, z));
         if (maybe != null && throwaway(select, stack -> stack.getItem() instanceof BlockItem && maybe.equals(((BlockItem) stack.getItem()).getBlock().getStateForPlacement(new BlockPlaceContext(new UseOnContext(ctx.world(), ctx.player(), InteractionHand.MAIN_HAND, stack, new BlockHitResult(new Vec3(ctx.player().position().x, ctx.player().position().y, ctx.player().position().z), Direction.UP, ctx.playerFeet(), false)) {}))))) {
             return true; // gotem

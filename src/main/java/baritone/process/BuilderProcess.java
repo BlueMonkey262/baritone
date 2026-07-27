@@ -23,6 +23,7 @@ import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.pathing.goals.GoalComposite;
 import baritone.api.pathing.goals.GoalGetToBlock;
 import baritone.api.process.IBuilderProcess;
+import baritone.api.process.IRestockProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
 import baritone.api.schematic.*;
@@ -31,9 +32,11 @@ import baritone.api.utils.*;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
 import baritone.pathing.movement.CalculationContext;
+import baritone.api.pathing.movement.IMovement;
 import baritone.pathing.movement.Movement;
 import baritone.pathing.movement.MovementHelper;
 import baritone.utils.BaritoneProcessHelper;
+import baritone.pathing.path.PathExecutor;
 import baritone.utils.BlockStateInterface;
 import baritone.utils.PathingCommandContext;
 import baritone.utils.schematic.MapArtSchematic;
@@ -71,6 +74,12 @@ import static baritone.api.pathing.movement.ActionCosts.COST_INF;
 
 public final class BuilderProcess extends BaritoneProcessHelper implements IBuilderProcess {
 
+    /**
+     * Schematics bigger than this are not scanned for their block palette; the scan is one pass over
+     * every position, which is fine for a house and silly for a city.
+     */
+    private static final long MAX_PALETTE_SCAN_VOLUME = 8_000_000L;
+
     private static final Set<Property<?>> ORIENTATION_PROPS =
             ImmutableSet.of(
                     RotatedPillarBlock.AXIS, HorizontalDirectionalBlock.FACING,
@@ -91,6 +100,32 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private int numRepeats;
     private List<BlockState> approxPlaceable;
     public int stopAtHeight = 0;
+    /**
+     * The materials the last call to {@link #assemble} found it was short of. Carried out of
+     * assemble so the restock logic can see what we actually need without recomputing it.
+     */
+    private Map<BlockState, Integer> missingMaterials = new HashMap<>();
+    /**
+     * Whether we've already offered the restock process a chance to index boxes for this build.
+     * Only tried once, so a failed or declined indexing run doesn't loop.
+     */
+    private boolean triedIndexingThisBuild;
+    /**
+     * Every block the schematic asks for anywhere, computed once per build. Null until computed,
+     * and left null if the schematic is too big to scan, in which case nothing is treated as junk.
+     */
+    private Set<Block> schematicPalette;
+    private boolean paletteTooLarge;
+    /**
+     * The goal we handed to the pathing behaviour last tick, and how many times in a row it has
+     * changed. Used to detect the builder dithering between targets instead of committing to one.
+     */
+    private Goal lastGoal;
+    private int consecutiveReroutes;
+    /**
+     * While positive, we stop re-planning and let the current path run. Counted down per tick.
+     */
+    private int rerouteCommitTicks;
 
     public BuilderProcess(Baritone baritone) {
         super(baritone);
@@ -133,6 +168,14 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         }
         this.origin = new Vec3i(x, y, z);
         this.paused = false;
+        // a new build gets a clean slate; materials given up on last time may well be available now
+        clearRestockGiveUps();
+        this.triedIndexingThisBuild = false;
+        this.schematicPalette = null;
+        this.paletteTooLarge = false;
+        this.lastGoal = null;
+        this.consecutiveReroutes = 0;
+        this.rerouteCommitTicks = 0;
         this.layer = Baritone.settings().startAtLayer.value;
         this.stopAtHeight = schematic.heightY();
         if (Baritone.settings().buildOnlySelection.value && buildingSelectionSchematic) {  // currently redundant but safer maybe
@@ -328,6 +371,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                         if (dy == 1 && bcc.bsi.get0(x, y + 1, z).getBlock() instanceof AirBlock) {
                             continue;
                         }
+                        if (pathNeedsOpen(new BetterBlockPos(x, y, z))) {
+                            continue; // we're about to walk through here; don't wall ourselves in
+                        }
                         desirableOnHotbar.add(desired);
                         Optional<Placement> opt = possibleToPlace(desired, x, y, z, bcc.bsi);
                         if (opt.isPresent()) {
@@ -338,6 +384,36 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * How many upcoming movements to protect from being built over.
+     */
+    private static final int PATH_LOOKAHEAD_MOVEMENTS = 10;
+
+    /**
+     * Whether the path we're currently walking needs this position to stay open.
+     * <p>
+     * Without this the builder will happily fill in a hole that pathing just dug to get through:
+     * the movement breaks a block, the builder sees the schematic wants one there and immediately
+     * places it back, the movement breaks it again, and the bot stands there thrashing. Positions
+     * the path still needs are simply deferred -- they get built once we're no longer walking
+     * through them.
+     */
+    private boolean pathNeedsOpen(BlockPos pos) {
+        PathExecutor exec = baritone.getPathingBehavior().getCurrent();
+        if (exec == null || exec.finished() || exec.failed()) {
+            return false;
+        }
+        List<IMovement> movements = exec.getPath().movements();
+        int from = exec.getPosition();
+        int to = Math.min(movements.size(), from + PATH_LOOKAHEAD_MOVEMENTS);
+        for (int i = from; i < to; i++) {
+            if (Arrays.asList(((Movement) movements.get(i)).toBreakAll()).contains(pos)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean placementPlausible(BlockPos pos, BlockState state) {
@@ -451,6 +527,18 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         baritone.getInputOverrideHandler().clearAllKeys();
         if (paused) {
             return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
+        }
+        // Before laying a single block, go and look inside any registered box we've never opened.
+        // Knowing the real contents up front means material lookups pick the right box first time
+        // instead of walking to one speculatively and finding it useless.
+        if (!triedIndexingThisBuild
+                && Baritone.settings().restockFromBoxes.value
+                && Baritone.settings().restockIndexBeforeBuild.value) {
+            triedIndexingThisBuild = true; // only ever attempted once per build
+            IRestockProcess restock = restockProcess();
+            if (restock != null && restock.requestIndexing(false)) {
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+            }
         }
         if (Baritone.settings().buildInLayers.value) {
             if (realSchematic == null) {
@@ -595,6 +683,42 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         if (goal == null) {
             goal = assemble(bcc, approxPlaceable, true); // we're far away, so assume that we have our whole inventory to recalculate placeable properly
             if (goal == null) {
+                // Nothing in the current working set can be placed or broken. If that's because
+                // we're out of a material, try to restock from a registered shulker box before
+                // giving anything up.
+                //
+                // Note this is NOT the same as "the build is finished": incorrectPositions is a
+                // bounded window (trimmed to nearby positions by distanceTrim, and capped at
+                // incorrectSize), so plenty of the schematic may remain further away. That's why
+                // the empty-missing case below still falls through to the original pause.
+                if (Baritone.settings().restockFromBoxes.value && !missingMaterials.isEmpty()) {
+                    Map<BlockState, Integer> missing = new HashMap<>(missingMaterials);
+                    IRestockProcess restock = restockProcess();
+                    if (restock == null) {
+                        return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+                    }
+                    // drop anything we've already concluded is unavailable, so we don't keep asking
+                    missing.keySet().removeIf(restock::isUnobtainable);
+                    if (!missing.isEmpty() && restock.requestRestock(missing)) {
+                        // the restock process outranks us and will take control next tick;
+                        // just hold still until it hands back
+                        return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+                    }
+                    // Either everything we're short of has already been given up on, or
+                    // requestRestock just gave up on the rest. Either way some of the positions
+                    // sitting in our working set can never be filled.
+                    //
+                    // recalcNearby only rescans a few blocks around the player, so those positions
+                    // would otherwise linger in incorrectPositions forever and keep us stuck here.
+                    // Dropping the working set forces a fullRecalc, which now skips unobtainable
+                    // materials entirely -- so we either pick up other work elsewhere in the
+                    // schematic, or the set comes back empty and the normal "Done building" path
+                    // finishes the build cleanly.
+                    if (missingMaterials.keySet().stream().anyMatch(restock::isUnobtainable)) {
+                        incorrectPositions = null;
+                        return onTick(calcFailed, isSafeToCancel, recursions + 1);
+                    }
+                }
                 if (Baritone.settings().skipFailedLayers.value && Baritone.settings().buildInLayers.value && layer * Baritone.settings().layerHeight.value < realSchematic.heightY()) {
                     logDirect("Skipping layer that I cannot construct! Layer #" + layer);
                     layer++;
@@ -605,7 +729,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
         }
-        return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
+        return commitAwarePathingCommand(goal, bcc);
     }
 
     private boolean recalc(BuilderCalculationContext bcc) {
@@ -621,6 +745,123 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             fullRecalc(bcc);
         }
         return !incorrectPositions.isEmpty();
+    }
+
+    @Override
+    public synchronized boolean managesPosition(BlockPos pos) {
+        ISchematic target = realSchematic != null ? realSchematic : schematic;
+        if (target == null || origin == null) {
+            return false; // not building, so we don't own anything
+        }
+        int x = pos.getX() - origin.getX();
+        int y = pos.getY() - origin.getY();
+        int z = pos.getZ() - origin.getZ();
+        return x >= 0 && y >= 0 && z >= 0
+                && x < target.widthX() && y < target.heightY() && z < target.lengthZ();
+    }
+
+    /**
+     * Normally the builder forces a full goal revalidation every tick, which is what lets it react
+     * to the world changing. The downside is there's no loop detection anywhere in the builder: if
+     * the goal it picks is unreachable, it will re-pick it forever and stand still recalculating.
+     * <p>
+     * So count how many ticks in a row the chosen goal actually changed. Past the threshold, stop
+     * re-planning for a short while and let whatever path is already in flight run to completion.
+     * The commit is deliberately temporary -- permanently pinning the goal would stop the builder
+     * reacting to anything at all.
+     */
+    private PathingCommand commitAwarePathingCommand(Goal goal, BuilderCalculationContext bcc) {
+        int maxReroutes = Baritone.settings().builderMaxReroutes.value;
+        if (maxReroutes <= 0) {
+            return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
+        }
+
+        if (rerouteCommitTicks > 0) {
+            rerouteCommitTicks--;
+            if (rerouteCommitTicks == 0) {
+                // give normal planning another chance now that we've had time to actually move
+                consecutiveReroutes = 0;
+                lastGoal = null;
+            }
+            // null goal with SET_GOAL_AND_PATH means "carry on with the current goal and path"
+            return new PathingCommandContext(null, PathingCommandType.SET_GOAL_AND_PATH, bcc);
+        }
+
+        if (goal.equals(lastGoal)) {
+            consecutiveReroutes = 0;
+        } else {
+            lastGoal = goal;
+            consecutiveReroutes++;
+            if (consecutiveReroutes > maxReroutes) {
+                rerouteCommitTicks = Baritone.settings().builderRerouteCommitTicks.value;
+                consecutiveReroutes = 0;
+                logDebug("Builder changed its mind " + maxReroutes + " times in a row; sticking with the current path for "
+                        + rerouteCommitTicks + " ticks");
+                return new PathingCommandContext(null, PathingCommandType.SET_GOAL_AND_PATH, bcc);
+            }
+        }
+        return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
+    }
+
+    /**
+     * The set of blocks this schematic uses anywhere. Scanned once and cached, in the same shape as
+     * {@link #fullRecalc}. Very large schematics are skipped rather than scanned, and report every
+     * block as wanted, so we never throw away materials just because the check was too expensive.
+     */
+    @Override
+    public synchronized boolean schematicWants(Block block) {
+        ISchematic target = realSchematic != null ? realSchematic : schematic;
+        if (target == null) {
+            return true; // not building; assume everything matters
+        }
+        if (schematicPalette == null && !paletteTooLarge) {
+            long volume = (long) target.widthX() * target.heightY() * target.lengthZ();
+            if (volume > MAX_PALETTE_SCAN_VOLUME) {
+                paletteTooLarge = true;
+                logDirect("Schematic is too large to work out which blocks are junk, so I won't discard anything.");
+            } else {
+                Set<Block> palette = new HashSet<>();
+                for (int y = 0; y < target.heightY(); y++) {
+                    for (int z = 0; z < target.lengthZ(); z++) {
+                        for (int x = 0; x < target.widthX(); x++) {
+                            BlockState desired = target.desiredState(x, y, z, Blocks.AIR.defaultBlockState(), Collections.emptyList());
+                            if (desired != null) {
+                                palette.add(desired.getBlock());
+                            }
+                        }
+                    }
+                }
+                schematicPalette = palette;
+            }
+        }
+        return paletteTooLarge || schematicPalette == null || schematicPalette.contains(block);
+    }
+
+    /**
+     * Whether the restock logic has concluded this material can't be sourced from any registered
+     * shulker box during this build.
+     */
+    private boolean isUnobtainable(BlockState desired) {
+        IRestockProcess restock = restockProcess();
+        return desired != null
+                && restock != null
+                && Baritone.settings().restockFromBoxes.value
+                && restock.isUnobtainable(desired);
+    }
+
+    /**
+     * The restock process, or null if it isn't constructed yet. Registration calls
+     * {@link #onLostControl()} before every process exists, so this must never be assumed present.
+     */
+    private IRestockProcess restockProcess() {
+        return baritone.getRestockProcess();
+    }
+
+    private void clearRestockGiveUps() {
+        IRestockProcess restock = restockProcess();
+        if (restock != null) {
+            restock.clearUnobtainable();
+        }
     }
 
     private void trim() {
@@ -641,7 +882,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     int y = center.y + dy;
                     int z = center.z + dz;
                     BlockState desired = bcc.getSchematic(x, y, z, bcc.bsi.get0(x, y, z));
-                    if (desired != null) {
+                    if (desired != null && !isUnobtainable(desired)) {
                         // we care about this position
                         BetterBlockPos pos = new BetterBlockPos(x, y, z);
                         if (valid(bcc.bsi.get0(x, y, z), desired, false)) {
@@ -667,6 +908,13 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     int blockZ = z + origin.getZ();
                     BlockState current = bcc.bsi.get0(blockX, blockY, blockZ);
                     if (!schematic.inSchematic(x, y, z, current)) {
+                        continue;
+                    }
+                    // Materials we've given up on stop counting as incorrect entirely. That makes
+                    // the builder keep planning around them instead of stalling, stops them eating
+                    // the incorrectSize budget, and lets the normal "Done building" path fire once
+                    // only unobtainable work is left.
+                    if (isUnobtainable(schematic.desiredState(x, y, z, current, this.approxPlaceable))) {
                         continue;
                     }
                     if (bcc.bsi.worldContainsLoadedChunk(blockX, blockZ)) { // check if its in render distance, not if its in cache
@@ -737,6 +985,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         List<Goal> toBreak = new ArrayList<>();
         breakable.forEach(pos -> toBreak.add(breakGoal(pos, bcc)));
         List<Goal> toPlace = new ArrayList<>();
+        // NB: deliberately NOT filtered by pathNeedsOpen. These are goals to path towards, not
+        // blocks placed this instant, and filtering here can empty the list entirely while a path
+        // runs through the build -- which looks to the caller like "nothing is placeable", skips
+        // the restock hook (it needs a non-empty missing map) and wrongly pauses the whole build.
+        // The re-placement loop this guards against happens in searchForPlacables, not here.
         placeable.forEach(pos -> {
             if (!placeable.contains(pos.below()) && !placeable.contains(pos.below(2))) {
                 toPlace.add(placementGoal(pos, bcc));
@@ -748,6 +1001,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             return new JankyGoalComposite(new GoalComposite(toPlace.toArray(new Goal[0])), new GoalComposite(toBreak.toArray(new Goal[0])));
         }
         if (toBreak.isEmpty()) {
+            this.missingMaterials = missing;
             if (logMissing && !missing.isEmpty()) {
                 logDirect("Missing materials for at least:");
                 logDirect(missing.entrySet().stream()
@@ -971,6 +1225,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
 
     @Override
     public void onLostControl() {
+        clearRestockGiveUps();
+        missingMaterials = new HashMap<>();
+        lastGoal = null;
+        consecutiveReroutes = 0;
+        rerouteCommitTicks = 0;
         incorrectPositions = null;
         name = null;
         schematic = null;
