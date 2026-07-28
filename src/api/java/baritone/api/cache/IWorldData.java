@@ -39,7 +39,11 @@ public interface IWorldData {
 
     /**
      * @return The registered restock boxes for this world
+     * @throws UnsupportedOperationException if this world-data implementation predates restock
+     *                                       boxes and cannot provide a safe empty collection
      */
-    IRestockBoxCollection getRestockBoxes();
+    default IRestockBoxCollection getRestockBoxes() {
+        throw new UnsupportedOperationException("This world-data implementation has no restock boxes");
+    }
 
 }
