@@ -109,6 +109,18 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     private final Set<BetterBlockPos> failedThisBuild = new HashSet<>();
 
     /**
+     * Boxes we found no room in during this build. Deliberately separate from
+     * {@link #failedThisBuild}: a box too full to accept a deposit is still a perfectly good box to
+     * take materials out of, and conflating the two would break restocking mid-build.
+     */
+    private final Set<BetterBlockPos> fullThisBuild = new HashSet<>();
+
+    /**
+     * Whether we have concluded there is nowhere left to unload to. Per build, like the sets above.
+     */
+    private boolean depositImpossible;
+
+    /**
      * So the allowInventory warning is only printed once per session rather than every trip.
      */
     private boolean warnedAboutInventory;
@@ -137,6 +149,22 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      */
     private boolean indexing;
     private int indexedThisRun;
+    /**
+     * When true this run exists solely to empty the inventory: nothing is fetched, every box is
+     * treated as somewhere to put things, and surplus scaffolding counts as rubble.
+     */
+    private boolean depositOnly;
+    /**
+     * Slots freed across every box visited this trip, and the free-slot count when we started on
+     * the current box. Measured rather than counted from clicks, because a click into a full box
+     * succeeds locally and moves nothing.
+     */
+    private int freedThisTrip;
+    private int freeSlotsAtBox;
+    /**
+     * How many stacks of each throwaway item we've already decided to hold back at this box.
+     */
+    private final Map<Item, Integer> keptThrowaway = new HashMap<>();
 
     private int ticksInState;
     private int lastContentRevision;
@@ -184,6 +212,9 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (this.indexing) {
             return "Indexing shulker boxes" + (this.targetBox == null ? "" : " at " + this.targetBox);
         }
+        if (this.depositOnly) {
+            return "Unloading" + (this.targetBox == null ? "" : " into " + this.targetBox);
+        }
         return "Restocking " + (this.wantedItem == null ? "" : itemName(this.wantedItem))
                 + (this.targetBox == null ? "" : " from " + this.targetBox);
     }
@@ -197,6 +228,52 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     public void clearUnobtainable() {
         this.unobtainable.clear();
         this.failedThisBuild.clear();
+        this.fullThisBuild.clear();
+        this.depositImpossible = false;
+    }
+
+    @Override
+    public boolean isDepositImpossible() {
+        return this.depositImpossible;
+    }
+
+    @Override
+    public boolean requestDeposit() {
+        if (!Baritone.settings().shulkerDump.value || isActive() || this.depositImpossible) {
+            return false;
+        }
+        IRestockBoxCollection collection = boxes();
+        if (collection == null) {
+            return false;
+        }
+        BetterBlockPos feet = ctx.playerFeet();
+        double maxDistSq = Math.pow(Baritone.settings().restockMaxDistance.value, 2);
+        List<BetterBlockPos> queue = new ArrayList<>();
+        for (IRestockBox box : collection.getAllBoxes()) {
+            if (box.isMissing() || this.fullThisBuild.contains(box.getLocation())) {
+                continue;
+            }
+            if (box.getLocation().distSqr(feet) > maxDistSq) {
+                continue;
+            }
+            queue.add(box.getLocation());
+        }
+        if (queue.isEmpty()) {
+            // no point being asked again every tick for the rest of the build
+            this.depositImpossible = true;
+            logDirect("Inventory is full, but there's no registered box left to unload into. Use #addbox to register one, or #set shulkerDump false.");
+            return false;
+        }
+        // nearest first: the whole point is to get back to work quickly
+        queue.sort(Comparator.comparingDouble(pos -> pos.distSqr(feet)));
+        this.depositOnly = true;
+        this.freedThisTrip = 0;
+        this.candidates = queue;
+        this.targetBox = this.candidates.remove(0);
+        this.state = State.PATHING;
+        this.ticksInState = 0;
+        logDirect("Inventory is full; unloading into the box at " + this.targetBox);
+        return true;
     }
 
     @Override
@@ -443,6 +520,11 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
                 logDirect(String.format("Indexed %s: %d item type(s)", this.targetBox, contents.size()));
                 return afterContainerWork();
             }
+            if (this.depositOnly) {
+                // nothing to fetch; the box is open, so go straight to filling it
+                this.lastContentRevision = behavior.getContentRevision();
+                return afterContainerWork();
+            }
             if (contents.getOrDefault(this.wantedItem, 0) <= 0) {
                 logDirect("Box at " + this.targetBox + " doesn't have " + itemName(this.wantedItem) + " after all; trying the next one");
                 this.failedThisBuild.add(this.targetBox);
@@ -530,7 +612,10 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.ticksInState = 0;
         this.depositSlot = -1;
         this.deposited = 0;
-        this.state = shouldDumpJunk() ? State.DEPOSITING : State.CLOSING;
+        this.keptThrowaway.clear();
+        this.freeSlotsAtBox = freeSlots();
+        // a deposit trip has no other reason to be here, so it never skips the dump
+        this.state = this.depositOnly || shouldDumpJunk() ? State.DEPOSITING : State.CLOSING;
         return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
     }
 
@@ -542,13 +627,20 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (!Baritone.settings().restockDumpJunk.value || ctx.player() == null) {
             return false;
         }
+        return freeSlots() < Baritone.settings().restockDumpWhenFreeSlotsBelow.value;
+    }
+
+    private int freeSlots() {
+        if (ctx.player() == null) {
+            return 0;
+        }
         int free = 0;
         for (ItemStack stack : ctx.player().getInventory().getNonEquipmentItems()) {
             if (stack.isEmpty()) {
                 free++;
             }
         }
-        return free < Baritone.settings().restockDumpWhenFreeSlotsBelow.value;
+        return free;
     }
 
     /**
@@ -557,13 +649,29 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      * Deliberately narrow: only block items, only ones the schematic never asks for, and never
      * anything Baritone relies on for scaffolding. Tools, weapons, armour, food and every non-block
      * item fail the first test and are always kept.
+     * <p>
+     * The one place this loosens is a deposit trip, where the whole point is to make room: there we
+     * hold back {@code shulkerDumpKeepThrowawayStacks} stacks of each scaffolding block and
+     * treat the surplus as rubble, since otherwise a cleararea over stone fills up with cobblestone
+     * that nothing is ever allowed to deposit.
+     * <p>
+     * Note this counts as it goes, so it must only ever be called once per slot, walking the
+     * player's half of the menu in order -- which is exactly what {@link #tickDepositing} does.
      */
     private boolean isJunk(ItemStack stack) {
         if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem)) {
             return false;
         }
         if (Baritone.settings().acceptableThrowawayItems.value.contains(stack.getItem())) {
-            return false; // needed for pillaring and bridging
+            if (!this.depositOnly) {
+                return false; // needed for pillaring and bridging
+            }
+            int kept = this.keptThrowaway.getOrDefault(stack.getItem(), 0);
+            if (kept < Baritone.settings().shulkerDumpKeepThrowawayStacks.value) {
+                this.keptThrowaway.put(stack.getItem(), kept + 1);
+                return false;
+            }
+            // everything past the stacks we held back is rubble like any other
         }
         Block block = ((BlockItem) stack.getItem()).getBlock();
         if (block instanceof ShulkerBoxBlock) {
@@ -580,6 +688,13 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         ContainerInteractionBehavior behavior = behavior();
         AbstractContainerMenu menu = behavior.openContainer();
         if (menu == null) {
+            if (this.depositOnly) {
+                // The box shut on us before we'd finished. Treat it as a failed box rather than
+                // just ending the trip: we're still full, so the builder would ask again straight
+                // away, and without marking this one we'd walk back to it forever.
+                logDirect("Box at " + this.targetBox + " closed while I was unloading");
+                return failCurrentBox();
+            }
             return finishTrip();
         }
         int containerSlots = behavior.containerSlotCount(menu);
@@ -594,12 +709,22 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
         }
+        // Clicks are not proof: shift-clicking into a full box succeeds locally and moves nothing.
+        // What actually happened is the change in free slots.
+        int freed = freeSlots() - this.freeSlotsAtBox;
         if (this.deposited > 0) {
             logDirect(String.format("Put %d stack(s) of unwanted blocks into %s", this.deposited, this.targetBox));
             IRestockBoxCollection collection = boxes();
             if (collection != null && behavior.isContainerReadable()) {
                 // what we just added changes the box's contents, so re-record them
                 collection.updateContents(this.targetBox, behavior.readContents(menu));
+            }
+        }
+        if (this.depositOnly) {
+            this.freedThisTrip += Math.max(0, freed);
+            if (freed <= 0) {
+                // either it's full or it rejected everything; don't come back to it this build
+                this.fullThisBuild.add(this.targetBox);
             }
         }
         this.state = State.CLOSING;
@@ -619,6 +744,24 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             logDirect("Finished indexing " + this.indexedThisRun + " shulker box(es). Use #listboxes to see what's where.");
             return finishTrip();
         }
+        if (this.depositOnly) {
+            // one box is often not enough room; while we're still short of space and there are
+            // boxes left, keep going rather than walking back to the build and straight out again
+            if (freeSlots() < Baritone.settings().shulkerDumpWhenFreeSlotsBelow.value && !this.candidates.isEmpty()) {
+                this.targetBox = this.candidates.remove(0);
+                this.state = State.PATHING;
+                this.ticksInState = 0;
+                return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+            }
+            if (this.freedThisTrip == 0) {
+                // every box we could reach took nothing, so asking again would just repeat the walk
+                this.depositImpossible = true;
+                logDirect("Couldn't unload anything - the registered boxes are full, or everything I'm carrying is worth keeping.");
+            } else {
+                logDirect(String.format("Freed %d inventory slot(s); back to it", this.freedThisTrip));
+            }
+            return finishTrip();
+        }
         // if this box let us down and there are other candidates, go straight to the next one
         // rather than bouncing back to the build site first
         if (!this.candidates.isEmpty() && !this.tookAnything) {
@@ -636,12 +779,21 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      */
     private PathingCommand failCurrentBox() {
         this.failedThisBuild.add(this.targetBox);
+        if (this.depositOnly) {
+            // a box we can't reach or open is no use as somewhere to put things either
+            this.fullThisBuild.add(this.targetBox);
+        }
         behavior().closeContainer();
         if (!this.candidates.isEmpty()) {
             this.targetBox = this.candidates.remove(0);
             this.state = State.PATHING;
             this.ticksInState = 0;
             return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+        }
+        if (this.depositOnly && this.freedThisTrip == 0) {
+            // nothing was unloaded anywhere, so let the builder stop asking
+            this.depositImpossible = true;
+            logDirect("Couldn't unload anything - none of the registered boxes could be used.");
         }
         markUnobtainable(this.wantedState, "every candidate box failed");
         return finishTrip();
@@ -698,6 +850,10 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.state = State.IDLE;
         this.indexing = false;
         this.indexedThisRun = 0;
+        this.depositOnly = false;
+        this.freedThisTrip = 0;
+        this.freeSlotsAtBox = 0;
+        this.keptThrowaway.clear();
         this.wantedItem = null;
         this.wantedState = null;
         this.wantedCount = 0;

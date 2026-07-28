@@ -113,6 +113,8 @@ public class Baritone implements IBaritone {
             this.inputOverrideHandler = this.registerBehavior(InputOverrideHandler::new);
             this.registerBehavior(WaypointBehavior::new);
             this.containerInteractionBehavior = this.registerBehavior(ContainerInteractionBehavior::new);
+            // last, so the hotbar slot it picks survives whatever the processes chose this tick
+            this.registerBehavior(EatBehavior::new);
         }
 
         this.pathingControlManager = new PathingControlManager(this);

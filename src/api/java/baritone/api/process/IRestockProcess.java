@@ -55,6 +55,29 @@ public interface IRestockProcess extends IBaritoneProcess {
     boolean requestIndexing(boolean includeAlreadyIndexed);
 
     /**
+     * Asks this process to go and empty the inventory into a registered box.
+     * <p>
+     * The mirror image of {@link #requestRestock}: called by the builder when it has run out of
+     * room rather than out of materials, which is what happens when a build is mostly breaking --
+     * {@code #sel cleararea} above all. Only blocks the schematic has no use for are deposited.
+     *
+     * @return {@code true} if a deposit run was started
+     */
+    boolean requestDeposit();
+
+    /**
+     * Whether we have already concluded that there is nowhere to unload to.
+     * <p>
+     * Set when a deposit run visits every candidate box and manages to deposit nothing at all,
+     * because every box is full or everything we're carrying is worth keeping. The builder checks
+     * this so that a hopeless situation doesn't turn into a walk to the same full boxes on every
+     * subsequent tick. Cleared alongside {@link #clearUnobtainable}.
+     *
+     * @return {@code true} if unloading has been given up on for the current build
+     */
+    boolean isDepositImpossible();
+
+    /**
      * Whether we have already concluded that no registered box can supply this material.
      * <p>
      * The builder uses this to permanently skip positions it can never fill, so that it keeps
@@ -67,9 +90,9 @@ public interface IRestockProcess extends IBaritoneProcess {
     boolean isUnobtainable(BlockState state);
 
     /**
-     * Clears the set of materials given up on. Called when a new build starts, and when the player
-     * registers or re-indexes a box, since either means a previously hopeless material may now be
-     * available.
+     * Clears the set of materials given up on, and the {@link #isDepositImpossible} flag. Called
+     * when a new build starts, and when the player registers or re-indexes a box, since either
+     * means a previously hopeless material -- or a previously full box -- may now be available.
      */
     void clearUnobtainable();
 }

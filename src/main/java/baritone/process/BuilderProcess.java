@@ -31,6 +31,7 @@ import baritone.api.schematic.format.ISchematicFormat;
 import baritone.api.utils.*;
 import baritone.api.utils.Rotation;
 import baritone.api.utils.input.Input;
+import baritone.api.utils.interfaces.IGoalRenderPos;
 import baritone.pathing.movement.CalculationContext;
 import baritone.api.pathing.movement.IMovement;
 import baritone.pathing.movement.Movement;
@@ -80,13 +81,60 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      */
     private static final long MAX_PALETTE_SCAN_VOLUME = 8_000_000L;
 
+    /**
+     * Properties the player picks when placing a block, by where they stand and which face they
+     * click. Ignored only when {@code buildIgnoreDirection} is on.
+     */
     private static final Set<Property<?>> ORIENTATION_PROPS =
             ImmutableSet.of(
                     RotatedPillarBlock.AXIS, HorizontalDirectionalBlock.FACING,
-                    StairBlock.FACING, StairBlock.HALF, StairBlock.SHAPE,
-                    PipeBlock.NORTH, PipeBlock.EAST, PipeBlock.SOUTH, PipeBlock.WEST, PipeBlock.UP,
+                    StairBlock.FACING, StairBlock.HALF,
                     TrapDoorBlock.OPEN, TrapDoorBlock.HALF
             );
+
+    /**
+     * The per-direction booleans a fence or a pane works out from what it's touching. Shared with
+     * blocks that do let you pick a face, glow lichen and the mushroom blocks, so which block we're
+     * looking at decides whether they're derived -- see {@link #derivedProperty}.
+     */
+    private static final Set<Property<?>> CONNECTION_PROPS =
+            ImmutableSet.of(
+                    PipeBlock.NORTH, PipeBlock.EAST, PipeBlock.SOUTH, PipeBlock.WEST, PipeBlock.UP, PipeBlock.DOWN
+            );
+
+    /**
+     * Whether vanilla works this property out from the neighbours (see {@code Block#updateShape})
+     * rather than it being something we can choose when placing.
+     * <p>
+     * Derived properties are <i>always</i> ignored when comparing states. Requiring them to match
+     * means a corner stair or a fence can never be "correct" the instant it's placed, so the builder
+     * breaks the block it just placed, places it again, and loops there forever.
+     */
+    private static boolean derivedProperty(Block block, Property<?> prop) {
+        if (prop == StairBlock.SHAPE) {
+            return true;
+        }
+        // glow lichen and the mushroom blocks use the same properties but you do choose their faces
+        return CONNECTION_PROPS.contains(prop) && (block instanceof CrossCollisionBlock || block instanceof ChorusPlantBlock);
+    }
+
+    /**
+     * Properties decided by where on the face we click rather than by where we stand, so they're
+     * waived while working out which way we need to be facing.
+     */
+    private static final Set<Property<?>> HIT_VECTOR_PROPS = ImmutableSet.of(StairBlock.HALF, TrapDoorBlock.HALF);
+
+    private static final Direction[] ORIENT_CANDIDATE_FACINGS = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
+
+    /**
+     * Standing further back than this puts the block out of reach.
+     */
+    private static final int ORIENT_MAX_STAND_DISTANCE = 4;
+
+    /**
+     * How close we have to be to a block before the give-up timer for its stand position starts.
+     */
+    private static final int ORIENT_TIMER_RANGE = 16;
 
     private HashSet<BetterBlockPos> incorrectPositions;
     private LongOpenHashSet observedCompleted; // positions that are completed even if they're out of render distance and we can't make sure right now
@@ -117,6 +165,12 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private Set<Block> schematicPalette;
     private boolean paletteTooLarge;
     /**
+     * Whether this build asks for air and nothing else, i.e. it only ever breaks. Recognised from
+     * the shape of the schematic rather than by scanning it, because the clearing case is exactly
+     * the one where the area is routinely too big to scan.
+     */
+    private boolean clearingOnly;
+    /**
      * The goal we handed to the pathing behaviour last tick, and how many times in a row it has
      * changed. Used to detect the builder dithering between targets instead of committing to one.
      */
@@ -139,6 +193,16 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * they become eligible again.
      */
     private final Map<Long, Integer> churnBlacklist = new HashMap<>();
+    /**
+     * When we first started trying to reach a facing-specific stand position for a block, so we can
+     * give up on it if the spot turns out to be unreachable instead of stalling the build.
+     */
+    private final Map<Long, Integer> orientFirstSeen = new HashMap<>();
+    /**
+     * Which way we have to be facing to place each desired state, worked out by simulation once per
+     * state rather than once per position.
+     */
+    private final Map<BlockState, Set<Direction>> orientationCache = new HashMap<>();
 
     public BuilderProcess(Baritone baritone) {
         super(baritone);
@@ -186,11 +250,18 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         this.triedIndexingThisBuild = false;
         this.schematicPalette = null;
         this.paletteTooLarge = false;
+        // Checked against the schematic as passed in, before the wrappers above: mirroring and
+        // rotation can't turn air into a block, and the mask only ever removes positions. A
+        // substitution for air could, so that one case bows out.
+        this.clearingOnly = isPureAir(schematic)
+                && !Baritone.settings().buildSubstitutes.value.containsKey(Blocks.AIR);
         this.lastGoal = null;
         this.consecutiveReroutes = 0;
         this.rerouteCommitTicks = 0;
         this.churn.clear();
         this.churnBlacklist.clear();
+        this.orientFirstSeen.clear();
+        this.orientationCache.clear();
         this.layer = Baritone.settings().startAtLayer.value;
         this.stopAtHeight = schematic.heightY();
         if (Baritone.settings().buildOnlySelection.value && buildingSelectionSchematic) {  // currently redundant but safer maybe
@@ -363,12 +434,18 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         private final BlockPos placeAgainst;
         private final Direction side;
         private final Rotation rot;
+        /**
+         * What the schematic wants here, kept so the placement can be re-checked against the
+         * rotation we actually end up at, not the one we planned for.
+         */
+        private final BlockState desired;
 
-        public Placement(int hotbarSelection, BlockPos placeAgainst, Direction side, Rotation rot) {
+        public Placement(int hotbarSelection, BlockPos placeAgainst, Direction side, Rotation rot, BlockState desired) {
             this.hotbarSelection = hotbarSelection;
             this.placeAgainst = placeAgainst;
             this.side = side;
             this.rot = rot;
+            this.desired = desired;
         }
     }
 
@@ -556,7 +633,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 if (result != null && result.getType() == HitResult.Type.BLOCK && ((BlockHitResult) result).getBlockPos().equals(placeAgainstPos) && ((BlockHitResult) result).getDirection() == against.getOpposite()) {
                     OptionalInt hotbar = hasAnyItemThatWouldPlace(toPlace, result, actualRot);
                     if (hotbar.isPresent()) {
-                        return Optional.of(new Placement(hotbar.getAsInt(), placeAgainstPos, against.getOpposite(), rot));
+                        return Optional.of(new Placement(hotbar.getAsInt(), placeAgainstPos, against.getOpposite(), rot, toPlace));
                     }
                 }
             }
@@ -570,25 +647,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem)) {
                 continue;
             }
-            float originalYaw = ctx.player().getYRot();
-            float originalPitch = ctx.player().getXRot();
-            // the state depends on the facing of the player sometimes
-            ctx.player().setYRot(rot.getYaw());
-            ctx.player().setXRot(rot.getPitch());
-            BlockPlaceContext meme = new BlockPlaceContext(new UseOnContext(
-                    ctx.world(),
-                    ctx.player(),
-                    InteractionHand.MAIN_HAND,
-                    stack,
-                    (BlockHitResult) result
-            ) {}); // that {} gives us access to a protected constructor lmfao
-            BlockState wouldBePlaced = ((BlockItem) stack.getItem()).getBlock().getStateForPlacement(meme);
-            ctx.player().setYRot(originalYaw);
-            ctx.player().setXRot(originalPitch);
+            BlockState wouldBePlaced = wouldPlace(stack, (BlockHitResult) result, rot);
             if (wouldBePlaced == null) {
-                continue;
-            }
-            if (!meme.canPlace()) {
                 continue;
             }
             if (valid(wouldBePlaced, desired, true)) {
@@ -596,6 +656,61 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
         }
         return OptionalInt.empty();
+    }
+
+    /**
+     * The state vanilla would actually create if we clicked {@code result} while aimed at
+     * {@code rot} holding {@code stack}, or {@code null} if nothing would be placed.
+     * <p>
+     * The rotation matters: many blocks (stairs, furnaces, observers, logs...) read the player's
+     * facing out of the placement context, so the answer differs depending on where we're looking
+     * when the click lands.
+     */
+    private BlockState wouldPlace(ItemStack stack, BlockHitResult result, Rotation rot) {
+        if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem)) {
+            return null;
+        }
+        float originalYaw = ctx.player().getYRot();
+        float originalPitch = ctx.player().getXRot();
+        // the state depends on the facing of the player sometimes
+        ctx.player().setYRot(rot.getYaw());
+        ctx.player().setXRot(rot.getPitch());
+        BlockPlaceContext meme = new BlockPlaceContext(new UseOnContext(
+                ctx.world(),
+                ctx.player(),
+                InteractionHand.MAIN_HAND,
+                stack,
+                result
+        ) {}); // that {} gives us access to a protected constructor lmfao
+        BlockState wouldBePlaced = ((BlockItem) stack.getItem()).getBlock().getStateForPlacement(meme);
+        boolean canPlace = meme.canPlace();
+        ctx.player().setYRot(originalYaw);
+        ctx.player().setXRot(originalPitch);
+        return canPlace ? wouldBePlaced : null;
+    }
+
+    /**
+     * Whether clicking right now, from wherever we happen to be looking this instant, would produce
+     * the block the schematic asked for.
+     * <p>
+     * {@link #possibleToPlace} checks this against the rotation it <i>plans</i> to aim at, but the
+     * look behaviour applies its own per-tick jitter and the click fires on whatever rotation we
+     * actually have. A yaw that lands a fraction of a degree the wrong side of a quadrant boundary
+     * flips {@code getHorizontalDirection}, and the stairs come out backwards. Re-checking against
+     * the live rotation turns that into a missed tick instead of a wrong block.
+     */
+    private boolean placementStillCorrect(Placement place) {
+        HitResult result = RayTraceUtils.rayTraceTowards(ctx.player(), ctx.playerRotations(), ctx.playerController().getBlockReachDistance(), true);
+        if (result == null || result.getType() != HitResult.Type.BLOCK) {
+            return false;
+        }
+        BlockHitResult hit = (BlockHitResult) result;
+        if (!hit.getBlockPos().equals(place.placeAgainst) || hit.getDirection() != place.side) {
+            return false;
+        }
+        ItemStack stack = ctx.player().getInventory().getNonEquipmentItems().get(place.hotbarSelection);
+        BlockState wouldBePlaced = wouldPlace(stack, hit, ctx.playerRotations());
+        return wouldBePlaced != null && valid(wouldBePlaced, place.desired, true);
     }
 
     private static Vec3[] aabbSideMultipliers(Direction side) {
@@ -645,6 +760,17 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             triedIndexingThisBuild = true; // only ever attempted once per build
             IRestockProcess restock = restockProcess();
             if (restock != null && restock.requestIndexing(false)) {
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+            }
+        }
+        // Out of room rather than out of materials: go and empty the inventory into a registered
+        // box before carrying on. Mostly for clearing jobs, where everything broken is rubble and
+        // the inventory fills long before the area is clear -- past that point blocks just drop on
+        // the floor. isDepositImpossible stops this being re-asked once there's nowhere to unload.
+        if (inventoryIsFull()) {
+            IRestockProcess restock = restockProcess();
+            if (restock != null && !restock.isDepositImpossible() && restock.requestDeposit()) {
+                // the restock process outranks us and takes control next tick
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
         }
@@ -756,7 +882,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             baritone.getLookBehavior().updateTarget(rot, true);
             ctx.player().getInventory().setSelectedSlot(toPlace.get().hotbarSelection);
             baritone.getInputOverrideHandler().setInputForceState(Input.SNEAK, true);
-            if ((ctx.isLookingAt(toPlace.get().placeAgainst) && ((BlockHitResult) ctx.objectMouseOver()).getDirection().equals(toPlace.get().side)) || ctx.playerRotations().isReallyCloseTo(rot)) {
+            boolean aimed = (ctx.isLookingAt(toPlace.get().placeAgainst) && ((BlockHitResult) ctx.objectMouseOver()).getDirection().equals(toPlace.get().side)) || ctx.playerRotations().isReallyCloseTo(rot);
+            // don't click until the block we'd actually create matches the one we want; both arms
+            // above can be true while the live yaw has drifted into the neighbouring quadrant
+            if (aimed && placementStillCorrect(toPlace.get())) {
                 // the block actually being created is the one on the far side of the face we click
                 BetterBlockPos placedAt = BetterBlockPos.from(toPlace.get().placeAgainst.relative(toPlace.get().side));
                 if (noteBlockAction(placedAt, true)) {
@@ -773,7 +902,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             outer:
             for (BlockState desired : desirableOnHotbar) {
                 for (int i = 0; i < 9; i++) {
-                    if (valid(approxPlaceable.get(i), desired, true)) {
+                    if (couldProduce(approxPlaceable.get(i), desired)) {
                         usefulSlots.add(i);
                         continue outer;
                     }
@@ -784,7 +913,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             outer:
             for (int i = 9; i < 36; i++) {
                 for (BlockState desired : noValidHotbarOption) {
-                    if (valid(approxPlaceable.get(i), desired, true)) {
+                    if (couldProduce(approxPlaceable.get(i), desired)) {
                         if (!baritone.getInventoryBehavior().attemptToPutOnHotbar(i, usefulSlots::contains)) {
                             // awaiting inventory move, so pause
                             return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
@@ -930,6 +1059,12 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         if (target == null) {
             return true; // not building; assume everything matters
         }
+        if (clearingOnly) {
+            // a clearing build wants nothing at all, so everything mined out of it is rubble. Worth
+            // answering up front: these are the builds too big to scan, and #sel cleararea is the
+            // whole reason the question gets asked in the first place
+            return block == Blocks.AIR;
+        }
         if (schematicPalette == null && !paletteTooLarge) {
             long volume = (long) target.widthX() * target.heightY() * target.lengthZ();
             if (volume > MAX_PALETTE_SCAN_VOLUME) {
@@ -951,6 +1086,53 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
         }
         return paletteTooLarge || schematicPalette == null || schematicPalette.contains(block);
+    }
+
+    /**
+     * Whether this schematic asks for air everywhere, decided structurally rather than by reading
+     * every position.
+     * <p>
+     * Only the two shapes that clearing actually produces are recognised -- a fill of air, and a
+     * composite of those, which is what {@code #sel cleararea} builds for a multi-part selection.
+     * Anything else answers no and falls back to the palette scan, so a false negative costs
+     * nothing beyond the scan we would have done anyway.
+     */
+    private static boolean isPureAir(ISchematic schematic) {
+        if (schematic instanceof FillSchematic) {
+            return ((FillSchematic) schematic).getBom().matches(Blocks.AIR.defaultBlockState());
+        }
+        if (schematic instanceof CompositeSchematic) {
+            List<CompositeSchematicEntry> parts = ((CompositeSchematic) schematic).getSchematics();
+            if (parts.isEmpty()) {
+                return false;
+            }
+            for (CompositeSchematicEntry entry : parts) {
+                if (!isPureAir(entry.schematic)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether we've run out of room to put what we're breaking.
+     * <p>
+     * Only asked while {@code shulkerDump} is on. Counts the whole inventory rather than the
+     * hotbar, since anything mined lands wherever there's space.
+     */
+    private boolean inventoryIsFull() {
+        if (!Baritone.settings().shulkerDump.value || ctx.player() == null) {
+            return false;
+        }
+        int free = 0;
+        for (ItemStack stack : ctx.player().getInventory().getNonEquipmentItems()) {
+            if (stack.isEmpty()) {
+                free++;
+            }
+        }
+        return free < Baritone.settings().shulkerDumpWhenFreeSlotsBelow.value;
     }
 
     /**
@@ -1080,7 +1262,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 BlockState desired = bcc.getSchematic(pos.x, pos.y, pos.z, state);
                 if (desired == null) {
                     outOfBounds.add(pos);
-                } else if (containsBlockState(approxPlaceable, desired)) {
+                } else if (containsCouldProduce(approxPlaceable, desired)) {
                     placeable.add(pos);
                 } else {
                     missing.put(desired, 1 + missing.getOrDefault(desired, 0));
@@ -1228,7 +1410,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         for (Direction facing : Movement.HORIZONTALS_BUT_ALSO_DOWN_____SO_EVERY_DIRECTION_EXCEPT_UP) {
             //noinspection ConstantConditions
             if (MovementHelper.canPlaceAgainst(ctx, pos.relative(facing)) && placementPlausible(pos, bcc.getSchematic(pos.getX(), pos.getY(), pos.getZ(), current))) {
-                return new GoalAdjacent(pos, pos.relative(facing), allowSameLevel);
+                // if which way we're facing decides how this block comes out, go and stand somewhere
+                // that gets it right rather than placing from whichever side we walked up to
+                Goal oriented = orientedPlacementGoal(pos, bcc.getSchematic(pos.getX(), pos.getY(), pos.getZ(), current));
+                return oriented != null ? oriented : new GoalAdjacent(pos, pos.relative(facing), allowSameLevel);
             }
         }
         return new GoalPlace(pos);
@@ -1247,6 +1432,183 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             });
         }
         return new GoalBreak(pos);
+    }
+
+    /**
+     * A goal for a block whose state depends on which way we're facing when we place it, e.g. stairs.
+     * <p>
+     * The state vanilla creates is read out of the placement context, so the aim rotation and the
+     * resulting facing are the same thing -- from a given eye position we cannot choose one without
+     * choosing the other. The only lever we have is where we stand. So instead of walking to any
+     * adjacent block and hoping, we walk a couple of blocks onto the side that makes looking at the
+     * target produce the facing the schematic asked for.
+     * <p>
+     * Returns {@code null} when this doesn't apply: the setting is off, the block doesn't care which
+     * way we're facing, no facing works (a six-way block wanting up/down, say), or we've already
+     * spent long enough trying and it's time to just place the thing.
+     */
+    private Goal orientedPlacementGoal(BlockPos pos, BlockState desired) {
+        if (!Baritone.settings().buildOrientBeforePlacing.value || desired == null) {
+            return null;
+        }
+        if (Baritone.settings().buildIgnoreDirection.value) {
+            return null; // they've said they don't care how it comes out; don't walk around for it
+        }
+        long hash = BetterBlockPos.longHash(pos.getX(), pos.getY(), pos.getZ());
+        // only start the clock once we're actually in the neighbourhood, otherwise a long walk
+        // across the build counts against a block we haven't started on yet
+        if (ctx.playerFeet().distSqr(pos) < ORIENT_TIMER_RANGE * ORIENT_TIMER_RANGE) {
+            Integer firstSeen = orientFirstSeen.get(hash);
+            if (firstSeen == null) {
+                orientFirstSeen.put(hash, builderTick);
+            } else if (builderTick - firstSeen > Baritone.settings().buildOrientTimeoutTicks.value) {
+                // the spot we want may be walled in or otherwise unreachable; don't stall the build
+                // over it forever. placementStillCorrect still keeps us from placing it wrong.
+                return null;
+            }
+        }
+        Set<Direction> facings = acceptableFacings(pos, desired);
+        if (facings.isEmpty() || facings.size() == 4) {
+            return null; // impossible, or the block doesn't care -- either way, nothing to constrain
+        }
+        int min = Math.max(1, Baritone.settings().buildOrientStandDistance.value);
+        return new GoalPlaceOriented(pos, facings, min, Math.max(min, ORIENT_MAX_STAND_DISTANCE));
+    }
+
+    /**
+     * Which directions we'd have to be facing for vanilla to give us {@code desired}.
+     * <p>
+     * Worked out by simulating the placement at each of the four horizontal yaws rather than by
+     * assuming a sign: stairs face the way you look, furnaces and chests face the opposite way, and
+     * pillars key off the clicked face entirely. Simulating covers all of them without a table of
+     * special cases. {@code HALF} is waived because the hit vector picks that, not where we stand.
+     */
+    private Set<Direction> acceptableFacings(BlockPos pos, BlockState desired) {
+        Set<Direction> cached = orientationCache.get(desired);
+        if (cached != null) {
+            return cached;
+        }
+        Set<Direction> result = EnumSet.noneOf(Direction.class);
+        ItemStack stack = ItemStack.EMPTY;
+        if (approxPlaceable != null) {
+            for (int i = 0; i < Math.min(9, approxPlaceable.size()); i++) {
+                if (couldProduce(approxPlaceable.get(i), desired)) {
+                    stack = ctx.player().getInventory().getNonEquipmentItems().get(i);
+                    break;
+                }
+            }
+        }
+        if (stack.isEmpty()) {
+            return result; // nothing on the hotbar to simulate with; try again once there is
+        }
+        // pretend to click the top of the block below, which is the placement we'd normally make
+        BlockHitResult hit = new BlockHitResult(new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5), Direction.UP, pos.below(), false);
+        for (Direction d : ORIENT_CANDIDATE_FACINGS) {
+            BlockState wouldBePlaced = wouldPlace(stack, hit, new Rotation(d.toYRot(), 0));
+            if (wouldBePlaced != null && sameBlockstate(wouldBePlaced, desired, HIT_VECTOR_PROPS)) {
+                result.add(d);
+            }
+        }
+        orientationCache.put(desired, result);
+        return result;
+    }
+
+    public static class GoalPlaceOriented implements Goal, IGoalRenderPos {
+
+        private final int x;
+        private final int y;
+        private final int z;
+        /**
+         * Directions we must be facing when we click, i.e. we have to stand on the opposite side.
+         */
+        private final Set<Direction> facings;
+        private final int minDistance;
+        private final int maxDistance;
+
+        public GoalPlaceOriented(BlockPos pos, Set<Direction> facings, int minDistance, int maxDistance) {
+            this.x = pos.getX();
+            this.y = pos.getY();
+            this.z = pos.getZ();
+            this.facings = EnumSet.copyOf(facings);
+            this.minDistance = minDistance;
+            this.maxDistance = maxDistance;
+        }
+
+        @Override
+        public BlockPos getGoalPos() {
+            return new BlockPos(x, y, z);
+        }
+
+        @Override
+        public boolean isInGoal(int x, int y, int z) {
+            if (y < this.y - 1 || y > this.y + 1) {
+                return false;
+            }
+            int dx = this.x - x;
+            int dz = this.z - z;
+            for (Direction facing : facings) {
+                // how far the target is in front of us, and how far off to the side
+                int along = dx * facing.getStepX() + dz * facing.getStepZ();
+                int lateral = Math.abs(dx * facing.getStepZ() - dz * facing.getStepX());
+                // a lateral block or less at two blocks out keeps the yaw within 27 degrees of the
+                // axis, comfortably inside the 45 degree quadrant that decides the facing, so the
+                // look behaviour's jitter can't flip us into the neighbouring one
+                if (along >= minDistance && along <= maxDistance && lateral <= 1) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public double heuristic(int x, int y, int z) {
+            double best = Double.POSITIVE_INFINITY;
+            for (Direction facing : facings) {
+                // the dead-centre spot for this facing: straight back along it, at the block's level
+                int idealX = this.x - facing.getStepX() * minDistance;
+                int idealZ = this.z - facing.getStepZ() * minDistance;
+                best = Math.min(best, GoalBlock.calculate(x - idealX, y - this.y, z - idealZ));
+            }
+            // prioritize lower y coordinates, as GoalAdjacent and GoalPlace do
+            return this.y * 100 + best;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            GoalPlaceOriented goal = (GoalPlaceOriented) o;
+            return x == goal.x
+                    && y == goal.y
+                    && z == goal.z
+                    && minDistance == goal.minDistance
+                    && maxDistance == goal.maxDistance
+                    && facings.equals(goal.facings);
+        }
+
+        @Override
+        public int hashCode() {
+            int hash = 1731894227;
+            hash = hash * 1412661222 + (int) BetterBlockPos.longHash(x, y, z);
+            hash = hash * 1730799370 + facings.hashCode();
+            hash = hash * 260592149 + minDistance * 31 + maxDistance;
+            return hash;
+        }
+
+        @Override
+        public String toString() {
+            return String.format(
+                    "GoalPlaceOriented{x=%s,y=%s,z=%s,facings=%s}",
+                    SettingsUtil.maybeCensor(x),
+                    SettingsUtil.maybeCensor(y),
+                    SettingsUtil.maybeCensor(z),
+                    facings
+            );
+        }
     }
 
     public static class GoalAdjacent extends GoalGetToBlock {
@@ -1357,6 +1719,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         numRepeats = 0;
         paused = false;
         observedCompleted = null;
+        orientFirstSeen.clear();
+        orientationCache.clear();
     }
 
     @Override
@@ -1407,17 +1771,22 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     }
 
     private static boolean sameBlockstate(BlockState first, BlockState second) {
+        return sameBlockstate(first, second, Baritone.settings().buildIgnoreDirection.value ? ORIENTATION_PROPS : Collections.<Property<?>>emptySet());
+    }
+
+    /**
+     * @param alsoIgnore properties to waive on top of the {@link #derivedProperty derived} ones and
+     *                   the ones named by {@code buildIgnoreProperties}
+     */
+    private static boolean sameBlockstate(BlockState first, BlockState second, Set<Property<?>> alsoIgnore) {
         if (first.getBlock() != second.getBlock()) {
             return false;
         }
-        boolean ignoreDirection = Baritone.settings().buildIgnoreDirection.value;
         List<String> ignoredProps = Baritone.settings().buildIgnoreProperties.value;
-        if (!ignoreDirection && ignoredProps.isEmpty()) {
-            return first.equals(second); // early return if no properties are being ignored
-        }
         for (Property<?> prop : first.getProperties()) {
-            if (first.getValue(prop) != second.getValue(prop)
-                    && !(ignoreDirection && ORIENTATION_PROPS.contains(prop))
+            if (!Objects.equals(first.getValue(prop), second.getValue(prop))
+                    && !derivedProperty(first.getBlock(), prop)
+                    && !alsoIgnore.contains(prop)
                     && !ignoredProps.contains(prop.getName())) {
                 return false;
             }
@@ -1425,9 +1794,23 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         return true;
     }
 
-    private static boolean containsBlockState(Collection<BlockState> states, BlockState state) {
+    /**
+     * Whether an item that we estimate places {@code placeable} could produce {@code desired} if we
+     * stood in the right spot and clicked the right face. Deliberately blind to orientation: this
+     * answers "do I have the material", not "is the world correct". {@link #approxPlaceable} guesses
+     * every item's state from one fixed pretend click, so it gets orientation wrong by construction,
+     * and comparing it strictly makes the builder claim it is out of stairs while holding a stack.
+     */
+    private static boolean couldProduce(BlockState placeable, BlockState desired) {
+        return sameBlockstate(placeable, desired, ORIENTATION_PROPS);
+    }
+
+    private static boolean containsCouldProduce(Collection<BlockState> states, BlockState desired) {
+        if (states.contains(desired)) {
+            return true; // block states are interned, so the common exact match costs a reference compare
+        }
         for (BlockState testee : states) {
-            if (sameBlockstate(testee, state)) {
+            if (couldProduce(testee, desired)) {
                 return true;
             }
         }
@@ -1503,7 +1886,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     // this won't be a schematic block, this will be a throwaway
                     return placeBlockCost * Baritone.settings().placeIncorrectBlockPenaltyMultiplier.value; // we're going to have to break it eventually
                 }
-                if (placeable.contains(sch)) {
+                if (containsCouldProduce(placeable, sch)) {
                     return 0; // thats right we gonna make it FREE to place a block where it should go in a structure
                     // no place block penalty at all 😎
                     // i'm such an idiot that i just tried to copy and paste the epic gamer moment emoji too

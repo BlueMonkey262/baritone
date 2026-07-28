@@ -27,6 +27,7 @@ import net.minecraft.client.multiplayer.chat.GuiMessageTag;
 import net.minecraft.core.Vec3i;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Mirror;
@@ -235,6 +236,36 @@ public final class Settings {
     )));
 
     /**
+     * Eat when hunger gets low and there's food on the hotbar. Whatever else Baritone is doing waits
+     * for the meal to finish, the same way it would if you ate by hand.
+     */
+    public final Setting<Boolean> autoEat = new Setting<>(true);
+
+    /**
+     * Start eating once hunger has dropped to this or below, out of 20. The default leaves three
+     * empty bars, enough that a big food isn't wasted but still short of losing the sprint.
+     *
+     * @see #autoEat
+     */
+    public final Setting<Integer> autoEatFoodLevel = new Setting<>(14);
+
+    /**
+     * Food that {@link #autoEat} will never touch: the ones that poison you, and the ones you'd
+     * rather save for an emergency.
+     */
+    public final Setting<List<Item>> autoEatExclude = new Setting<>(new ArrayList<>(Arrays.asList(
+            Items.ROTTEN_FLESH,
+            Items.SPIDER_EYE,
+            Items.POISONOUS_POTATO,
+            Items.PUFFERFISH,
+            Items.CHICKEN,
+            Items.SUSPICIOUS_STEW,
+            Items.CHORUS_FRUIT,
+            Items.GOLDEN_APPLE,
+            Items.ENCHANTED_GOLDEN_APPLE
+    )));
+
+    /**
      * Blocks that Baritone will attempt to avoid (Used in avoidance)
      */
     public final Setting<List<Block>> blocksToAvoid = new Setting<>(new ArrayList<>(List.of(
@@ -330,6 +361,30 @@ public final class Settings {
      */
     public final Setting<List<String>> buildIgnoreProperties = new Setting<>(new ArrayList<>(Arrays.asList(
     )));
+
+    /**
+     * For blocks whose state depends on which way you're facing when you place them (stairs, furnaces,
+     * observers, logs...), walk round to a spot that produces the orientation the schematic asked for
+     * instead of placing from wherever we happen to be standing.
+     */
+    public final Setting<Boolean> buildOrientBeforePlacing = new Setting<>(true);
+
+    /**
+     * How far back from the block to stand when placing an orientation-sensitive block. Two blocks or
+     * more keeps the look angle well inside the quadrant that decides the facing; standing right next
+     * to the block puts it near a boundary where aim jitter flips the orientation.
+     *
+     * @see #buildOrientBeforePlacing
+     */
+    public final Setting<Integer> buildOrientStandDistance = new Setting<>(2);
+
+    /**
+     * How long to try to reach the right side of an orientation-sensitive block before giving up and
+     * placing it from wherever we can. Stops a stair in a corner from stalling the whole build.
+     *
+     * @see #buildOrientBeforePlacing
+     */
+    public final Setting<Integer> buildOrientTimeoutTicks = new Setting<>(200);
 
     /**
      * If this setting is true, Baritone will never break a block that is adjacent to an unsupported falling block.
@@ -528,8 +583,47 @@ public final class Settings {
 
     /**
      * Only bother depositing junk once free inventory slots drop below this.
+     * <p>
+     * This is the cheap opportunistic case: we're already standing at an open box, so the only cost
+     * is a few container clicks. {@link #shulkerDumpWhenFreeSlotsBelow} governs the expensive case
+     * of walking to a box for no other reason.
      */
     public final Setting<Integer> restockDumpWhenFreeSlotsBelow = new Setting<>(4);
+
+    /**
+     * When the inventory fills up during a build, walk to a registered shulker box and unload into
+     * it, then carry on where we left off.
+     * <p>
+     * Meant for {@code #sel cleararea}, where everything mined is rubble and the inventory fills
+     * long before the job is done; with this off, blocks broken with a full inventory are simply
+     * dropped on the floor. Only blocks the schematic has no use for are deposited, so it is
+     * equally safe during a real build.
+     * <p>
+     * Off by default: it walks the player away from the build, which is not something to start
+     * doing to someone who didn't ask for it.
+     *
+     * @see #shulkerDumpWhenFreeSlotsBelow
+     */
+    public final Setting<Boolean> shulkerDump = new Setting<>(false);
+
+    /**
+     * Go and unload once free inventory slots drop below this.
+     * <p>
+     * Deliberately tighter than {@link #restockDumpWhenFreeSlotsBelow}, because this trip costs a
+     * walk of up to {@link #restockMaxDistance} in each direction rather than a few clicks.
+     *
+     * @see #shulkerDump
+     */
+    public final Setting<Integer> shulkerDumpWhenFreeSlotsBelow = new Setting<>(2);
+
+    /**
+     * How many stacks of each {@link #acceptableThrowawayItems} block to hold back when unloading,
+     * so that we keep enough to pillar and bridge with instead of depositing every last cobblestone
+     * and stranding ourselves.
+     *
+     * @see #shulkerDump
+     */
+    public final Setting<Integer> shulkerDumpKeepThrowawayStacks = new Setting<>(1);
 
     /**
      * When running a goto towards a nether portal block, walk all the way into the portal
