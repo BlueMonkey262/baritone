@@ -17,9 +17,11 @@
 
 package baritone.api.process;
 
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.Map;
+import java.util.function.Predicate;
 
 /**
  * Fetches build materials from shulker boxes registered with {@code #addbox}.
@@ -37,10 +39,11 @@ public interface IRestockProcess extends IBaritoneProcess {
      * Called by the builder at the point where it would otherwise give up. If this returns
      * {@code true} the process has become active and will take control on the next tick.
      *
-     * @param missing The block states the builder is short of, mapped to how many it wants
+     * @param missing      The block states the builder is short of, mapped to how many it wants
+     * @param worthKeeping Whether an inventory stack belongs to the work being done
      * @return {@code true} if a restock run was started
      */
-    boolean requestRestock(Map<BlockState, Integer> missing);
+    boolean requestRestock(Map<BlockState, Integer> missing, Predicate<ItemStack> worthKeeping);
 
     /**
      * Walks to every registered box whose contents we've never actually observed, opens it, and
@@ -50,30 +53,33 @@ public interface IRestockProcess extends IBaritoneProcess {
      * guesses, which avoids walking to a box speculatively only to find it useless.
      *
      * @param includeAlreadyIndexed {@code true} to re-check every box, not just unindexed ones
+     * @param worthKeeping           Whether an inventory stack belongs to the work being done
      * @return {@code true} if an indexing run was started; {@code false} if there was nothing to do
      */
-    boolean requestIndexing(boolean includeAlreadyIndexed);
+    boolean requestIndexing(boolean includeAlreadyIndexed, Predicate<ItemStack> worthKeeping);
 
     /**
      * Asks this process to go and empty the inventory into a registered box.
      * <p>
-     * The mirror image of {@link #requestRestock}: called by the builder when it has run out of
-     * room rather than out of materials, which is what happens when a build is mostly breaking --
-     * {@code #sel cleararea} above all. Only blocks the schematic has no use for are deposited.
+     * The mirror image of {@link #requestRestock}: called when a process has run out of room rather
+     * than out of materials. The caller supplies the rule for recognising its useful output, since
+     * a builder cares about its schematic while a miner cares about the drops from its target
+     * blocks.
      *
+     * @param worthKeeping Whether an inventory stack belongs to the work being done
      * @return {@code true} if a deposit run was started
      */
-    boolean requestDeposit();
+    boolean requestDeposit(Predicate<ItemStack> worthKeeping);
 
     /**
      * Whether we have already concluded that there is nowhere to unload to.
      * <p>
      * Set when a deposit run visits every candidate box and manages to deposit nothing at all,
-     * because every box is full or everything we're carrying is worth keeping. The builder checks
-     * this so that a hopeless situation doesn't turn into a walk to the same full boxes on every
-     * subsequent tick. Cleared alongside {@link #clearUnobtainable}.
+     * because every box is full or everything we're carrying is worth keeping. The calling process
+     * checks this so that a hopeless situation doesn't turn into a walk to the same full boxes on
+     * every subsequent tick. Cleared alongside {@link #clearUnobtainable}.
      *
-     * @return {@code true} if unloading has been given up on for the current build
+     * @return {@code true} if unloading has been given up on for the current piece of work
      */
     boolean isDepositImpossible();
 
@@ -91,8 +97,9 @@ public interface IRestockProcess extends IBaritoneProcess {
 
     /**
      * Clears the set of materials given up on, and the {@link #isDepositImpossible} flag. Called
-     * when a new build starts, and when the player registers or re-indexes a box, since either
-     * means a previously hopeless material -- or a previously full box -- may now be available.
+     * when a new build or mine starts, and when the player registers or re-indexes a box, since
+     * either means a previously hopeless material -- or a previously full box -- may now be
+     * available.
      */
     void clearUnobtainable();
 }

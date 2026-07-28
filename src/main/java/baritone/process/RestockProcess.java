@@ -33,16 +33,19 @@ import baritone.api.utils.input.Input;
 import baritone.behavior.ContainerInteractionBehavior;
 import baritone.pathing.movement.MovementHelper;
 import baritone.utils.BaritoneProcessHelper;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.CakeBlock;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * Fetches build materials from shulker boxes registered with {@code #addbox}.
@@ -64,7 +67,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
 
     private enum State {
         /**
-         * Not restocking. The builder is in control.
+         * Not restocking. The process being helped is in control.
          */
         IDLE,
         /**
@@ -103,20 +106,20 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     private final Set<BlockState> unobtainable = new HashSet<>();
 
     /**
-     * Boxes we have already opened during this build and found lacking. Also per build, so that a
-     * single restock run doesn't revisit a box it just found empty.
+     * Boxes we have already opened during this piece of work and found unusable. Keeping this
+     * beyond one trip stops both restocking and unloading from revisiting a box that just failed.
      */
     private final Set<BetterBlockPos> failedThisBuild = new HashSet<>();
 
     /**
-     * Boxes we found no room in during this build. Deliberately separate from
+     * Boxes we found no room in during this piece of work. Deliberately separate from
      * {@link #failedThisBuild}: a box too full to accept a deposit is still a perfectly good box to
      * take materials out of, and conflating the two would break restocking mid-build.
      */
     private final Set<BetterBlockPos> fullThisBuild = new HashSet<>();
 
     /**
-     * Whether we have concluded there is nowhere left to unload to. Per build, like the sets above.
+     * Whether we have concluded there is nowhere left to unload to for the current piece of work.
      */
     private boolean depositImpossible;
 
@@ -140,6 +143,12 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      * How many items to keep pulling until we stop; the shortfall plus a configured surplus.
      */
     private int fetchTarget;
+    /**
+     * The rule supplied by whichever process sent us here. Keeping it per trip means the deposit
+     * code need not know whether it interrupted a build or a mine, or guess which process decides
+     * what matters.
+     */
+    private Predicate<ItemStack> worthKeeping;
 
     private BetterBlockPos targetBox;
     private List<BetterBlockPos> candidates = new ArrayList<>();
@@ -188,9 +197,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     /**
-     * Higher than the builder (which runs at the default priority of -1) so that we take control
-     * when a restock is in flight, and just above the inventory pauser so that a pending hotbar
-     * swap can't preempt us mid-container.
+     * Higher than the builder and miner so that we take control when a trip is in flight, and just
+     * above the inventory pauser so that a pending hotbar swap can't preempt us mid-container.
      */
     @Override
     public double priority() {
@@ -198,9 +206,9 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     /**
-     * This process <b>must</b> be temporary. {@code BuilderProcess#onLostControl} nulls out the
-     * schematic and the set of incorrect positions, so a non-temporary process taking control
-     * would silently destroy the build we are trying to help.
+     * This process <b>must</b> be temporary. Both the builder and miner discard their current work
+     * in {@code onLostControl}, so a non-temporary process taking control would silently destroy
+     * the job we are trying to help.
      */
     @Override
     public boolean isTemporary() {
@@ -238,7 +246,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     @Override
-    public boolean requestDeposit() {
+    public boolean requestDeposit(Predicate<ItemStack> worthKeeping) {
+        Objects.requireNonNull(worthKeeping);
         if (!Baritone.settings().shulkerDump.value || isActive() || this.depositImpossible) {
             return false;
         }
@@ -259,13 +268,14 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             queue.add(box.getLocation());
         }
         if (queue.isEmpty()) {
-            // no point being asked again every tick for the rest of the build
+            // no point being asked again every tick for the rest of this piece of work
             this.depositImpossible = true;
             logDirect("Inventory is full, but there's no registered box left to unload into. Use #addbox to register one, or #set shulkerDump false.");
             return false;
         }
         // nearest first: the whole point is to get back to work quickly
         queue.sort(Comparator.comparingDouble(pos -> pos.distSqr(feet)));
+        this.worthKeeping = worthKeeping;
         this.depositOnly = true;
         this.freedThisTrip = 0;
         this.candidates = queue;
@@ -277,7 +287,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     @Override
-    public boolean requestIndexing(boolean includeAlreadyIndexed) {
+    public boolean requestIndexing(boolean includeAlreadyIndexed, Predicate<ItemStack> worthKeeping) {
+        Objects.requireNonNull(worthKeeping);
         if (!Baritone.settings().restockFromBoxes.value || isActive()) {
             return false;
         }
@@ -304,6 +315,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         }
         // nearest first, so the walk between boxes is roughly sensible
         queue.sort(Comparator.comparingDouble(pos -> pos.distSqr(feet)));
+        this.worthKeeping = worthKeeping;
         this.indexing = true;
         this.indexedThisRun = 0;
         this.candidates = queue;
@@ -315,7 +327,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     @Override
-    public boolean requestRestock(Map<BlockState, Integer> missing) {
+    public boolean requestRestock(Map<BlockState, Integer> missing, Predicate<ItemStack> worthKeeping) {
+        Objects.requireNonNull(worthKeeping);
         if (!Baritone.settings().restockFromBoxes.value || isActive() || missing.isEmpty()) {
             return false;
         }
@@ -347,6 +360,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             this.wantedState = desired;
             this.wantedItem = item;
             this.wantedCount = entry.getValue();
+            this.worthKeeping = worthKeeping;
             // keep clearing slots a bit past the immediate shortfall so we don't have to walk
             // straight back for the next few blocks
             this.fetchTarget = entry.getValue() + (Baritone.settings().restockExtraStacks.value * 64);
@@ -606,7 +620,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
 
     /**
      * Called once we're done taking things out of a box. If the inventory is getting tight, use the
-     * open container to offload blocks the schematic has no use for before walking away.
+     * open container to offload blocks the interrupted work has no use for before walking away.
      */
     private PathingCommand afterContainerWork() {
         this.ticksInState = 0;
@@ -646,9 +660,9 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     /**
      * Whether this stack is rubble rather than something worth keeping.
      * <p>
-     * Deliberately narrow: only block items, only ones the schematic never asks for, and never
-     * anything Baritone relies on for scaffolding. Tools, weapons, armour, food and every non-block
-     * item fail the first test and are always kept.
+     * Deliberately narrow: only block items which are not food, equipment, tools or weapons, only
+     * ones the interrupted work does not want, and never anything Baritone relies on for
+     * scaffolding. Every non-block item is always kept as well.
      * <p>
      * The one place this loosens is a deposit trip, where the whole point is to make room: there we
      * hold back {@code shulkerDumpKeepThrowawayStacks} stacks of each scaffolding block and
@@ -659,7 +673,16 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      * player's half of the menu in order -- which is exactly what {@link #tickDepositing} does.
      */
     private boolean isJunk(ItemStack stack) {
-        if (stack.isEmpty() || !(stack.getItem() instanceof BlockItem)) {
+        if (stack.isEmpty()
+                || !(stack.getItem() instanceof BlockItem)
+                || stack.get(DataComponents.FOOD) != null
+                || stack.get(DataComponents.EQUIPPABLE) != null
+                || stack.get(DataComponents.TOOL) != null
+                || stack.get(DataComponents.WEAPON) != null) {
+            return false;
+        }
+        Block block = ((BlockItem) stack.getItem()).getBlock();
+        if (block instanceof CakeBlock || block instanceof ShulkerBoxBlock) {
             return false;
         }
         if (Baritone.settings().acceptableThrowawayItems.value.contains(stack.getItem())) {
@@ -673,11 +696,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             }
             // everything past the stacks we held back is rubble like any other
         }
-        Block block = ((BlockItem) stack.getItem()).getBlock();
-        if (block instanceof ShulkerBoxBlock) {
-            return false; // never post a shulker box into another shulker box
-        }
-        return !baritone.getBuilderProcess().schematicWants(block);
+        return !this.worthKeeping.test(stack);
     }
 
     /**
@@ -690,8 +709,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (menu == null) {
             if (this.depositOnly) {
                 // The box shut on us before we'd finished. Treat it as a failed box rather than
-                // just ending the trip: we're still full, so the builder would ask again straight
-                // away, and without marking this one we'd walk back to it forever.
+                // just ending the trip: we're still full, so the interrupted process would ask
+                // again straight away, and without marking this one we'd walk back to it forever.
                 logDirect("Box at " + this.targetBox + " closed while I was unloading");
                 return failCurrentBox();
             }
@@ -723,7 +742,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (this.depositOnly) {
             this.freedThisTrip += Math.max(0, freed);
             if (freed <= 0) {
-                // either it's full or it rejected everything; don't come back to it this build
+                // either it's full or it rejected everything; don't come back to it for this work
                 this.fullThisBuild.add(this.targetBox);
             }
         }
@@ -746,7 +765,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         }
         if (this.depositOnly) {
             // one box is often not enough room; while we're still short of space and there are
-            // boxes left, keep going rather than walking back to the build and straight out again
+            // boxes left, keep going rather than walking back to the work and straight out again
             if (freeSlots() < Baritone.settings().shulkerDumpWhenFreeSlotsBelow.value && !this.candidates.isEmpty()) {
                 this.targetBox = this.candidates.remove(0);
                 this.state = State.PATHING;
@@ -791,7 +810,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
         }
         if (this.depositOnly && this.freedThisTrip == 0) {
-            // nothing was unloaded anywhere, so let the builder stop asking
+            // nothing was unloaded anywhere, so let the interrupted process stop asking
             this.depositImpossible = true;
             logDirect("Couldn't unload anything - none of the registered boxes could be used.");
         }
@@ -800,8 +819,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     /**
-     * Ends the restock run and hands control back to the builder, which will re-scan the player's
-     * inventory on its next tick and carry on with whatever it can now place.
+     * Ends the trip and hands control back to the interrupted process, which will see the changed
+     * inventory on its next tick and carry on with the room that was made.
      */
     private PathingCommand finishTrip() {
         resetTrip();
@@ -858,6 +877,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.wantedState = null;
         this.wantedCount = 0;
         this.fetchTarget = 0;
+        this.worthKeeping = null;
         this.targetBox = null;
         this.candidates = new ArrayList<>();
         this.ticksInState = 0;
@@ -870,8 +890,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
 
     /**
      * Note that this deliberately does <b>not</b> clear {@link #unobtainable} or
-     * {@link #failedThisBuild}. Those are per-build, and wiping them here would send us back to
-     * the same empty boxes on the very next tick.
+     * {@link #failedThisBuild}. They outlive a single trip, and wiping them here would send us back
+     * to the same empty or unusable boxes on the very next tick.
      */
     @Override
     public void onLostControl() {

@@ -759,7 +759,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 && Baritone.settings().restockIndexBeforeBuild.value) {
             triedIndexingThisBuild = true; // only ever attempted once per build
             IRestockProcess restock = restockProcess();
-            if (restock != null && restock.requestIndexing(false)) {
+            if (restock != null && restock.requestIndexing(false, this::inventoryWants)) {
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
         }
@@ -769,7 +769,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         // the floor. isDepositImpossible stops this being re-asked once there's nowhere to unload.
         if (inventoryIsFull()) {
             IRestockProcess restock = restockProcess();
-            if (restock != null && !restock.isDepositImpossible() && restock.requestDeposit()) {
+            if (restock != null && !restock.isDepositImpossible() && restock.requestDeposit(this::inventoryWants)) {
                 // the restock process outranks us and takes control next tick
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
@@ -944,7 +944,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     }
                     // drop anything we've already concluded is unavailable, so we don't keep asking
                     missing.keySet().removeIf(restock::isUnobtainable);
-                    if (!missing.isEmpty() && restock.requestRestock(missing)) {
+                    if (!missing.isEmpty() && restock.requestRestock(missing, this::inventoryWants)) {
                         // the restock process outranks us and will take control next tick;
                         // just hold still until it hands back
                         return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
@@ -1086,6 +1086,16 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
         }
         return paletteTooLarge || schematicPalette == null || schematicPalette.contains(block);
+    }
+
+    /**
+     * Adapts the schematic palette to the inventory-level question the restock process asks. It
+     * only offers block items, but treating anything else as worth keeping makes this safe even if
+     * that deliberately narrow rule is widened later.
+     */
+    private boolean inventoryWants(ItemStack stack) {
+        return !(stack.getItem() instanceof BlockItem)
+                || schematicWants(((BlockItem) stack.getItem()).getBlock());
     }
 
     /**

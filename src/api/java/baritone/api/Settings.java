@@ -591,15 +591,15 @@ public final class Settings {
     public final Setting<Integer> restockDumpWhenFreeSlotsBelow = new Setting<>(4);
 
     /**
-     * When the inventory fills up during a build, walk to a registered shulker box and unload into
-     * it, then carry on where we left off.
+     * When the inventory fills up during a build or mine, walk to a registered shulker box and
+     * unload into it, then carry on where we left off.
      * <p>
      * Meant for {@code #sel cleararea}, where everything mined is rubble and the inventory fills
      * long before the job is done; with this off, blocks broken with a full inventory are simply
-     * dropped on the floor. Only blocks the schematic has no use for are deposited, so it is
-     * equally safe during a real build.
+     * dropped on the floor. Only blocks the active process has no use for are deposited, so build
+     * materials and the drops a mine was started for are kept.
      * <p>
-     * Off by default: it walks the player away from the build, which is not something to start
+     * Off by default: it walks the player away from their work, which is not something to start
      * doing to someone who didn't ask for it.
      *
      * @see #shulkerDumpWhenFreeSlotsBelow

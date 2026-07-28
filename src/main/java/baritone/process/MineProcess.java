@@ -21,6 +21,7 @@ import baritone.Baritone;
 import baritone.api.BaritoneAPI;
 import baritone.api.pathing.goals.*;
 import baritone.api.process.IMineProcess;
+import baritone.api.process.IRestockProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
 import baritone.api.utils.*;
@@ -34,6 +35,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.AirBlock;
 import net.minecraft.world.level.block.Block;
@@ -81,6 +83,18 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
                 logDirect("Have " + curr + " valid items");
                 cancel();
                 return null;
+            }
+        }
+        // Once there is no room for another drop, carry on only after making space in a registered
+        // box. The keep rule recognises the drops from the requested blocks as well as the blocks
+        // themselves, so the thing this mine was started for can never be mistaken for rubble.
+        if (inventoryIsFull()) {
+            IRestockProcess restock = baritone.getRestockProcess();
+            if (restock != null
+                    && !restock.isDepositImpossible()
+                    && restock.requestDeposit(this::inventoryWants)) {
+                // the restock process outranks us and takes control next tick
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
         }
         if (calcFailed) {
@@ -508,6 +522,14 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         if (this.filterFilter() == null) {
             this.filter = null;
         }
+        if (this.filter != null) {
+            // A new mine gets a clean slate: boxes which were full or useless to the previous job
+            // may be perfectly usable now that a different inventory stack is worth keeping.
+            IRestockProcess restock = baritone.getRestockProcess();
+            if (restock != null) {
+                restock.clearUnobtainable();
+            }
+        }
         this.desiredQuantity = quantity;
         this.knownOreLocations = new ArrayList<>();
         this.blacklist = new ArrayList<>();
@@ -517,6 +539,36 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         if (filter != null) {
             rescan(new ArrayList<>(), new CalculationContext(baritone));
         }
+    }
+
+    /**
+     * Whether another mined drop would have nowhere to go. Counts the whole inventory rather than
+     * the hotbar, since picked-up items use every ordinary slot before they fall on the floor.
+     */
+    private boolean inventoryIsFull() {
+        if (!Baritone.settings().shulkerDump.value || ctx.player() == null) {
+            return false;
+        }
+        int free = 0;
+        for (ItemStack stack : ctx.player().getInventory().getNonEquipmentItems()) {
+            if (stack.isEmpty()) {
+                free++;
+            }
+        }
+        return free < Baritone.settings().shulkerDumpWhenFreeSlotsBelow.value;
+    }
+
+    /**
+     * Whether a stack is the requested block or one of its ordinary drops. The latter is what
+     * {@link BlockOptionalMetaLookup#has(ItemStack)} answers, while checking block items as well
+     * covers Silk Touch without teaching the unloading process anything about mining.
+     */
+    private boolean inventoryWants(ItemStack stack) {
+        if (this.filter.has(stack)) {
+            return true;
+        }
+        return stack.getItem() instanceof BlockItem
+                && this.filter.has(((BlockItem) stack.getItem()).getBlock());
     }
 
     private BlockOptionalMetaLookup filterFilter() {

@@ -46,6 +46,12 @@ import java.util.zip.ZipFile;
  */
 public class ProguardTask extends BaritoneGradleTask {
 
+    private static final List<String> JAVA_RUNTIME_MODULES = List.of(
+            "java.base",
+            "java.desktop",
+            "jdk.unsupported"
+    );
+
     @Input
     private String proguardVersion;
 
@@ -130,9 +136,12 @@ public class ProguardTask extends BaritoneGradleTask {
         template.add(0, "-injars '" + this.artifactPath.toString() + "'");
         template.add(1, "-outjars '" + this.getTemporaryFile(PROGUARD_EXPORT_PATH) + "'");
 
-        template.add(2, "-libraryjars  <java.home>/jmods/java.base.jmod(!**.jar;!module-info.class)");
-        template.add(3, "-libraryjars  <java.home>/jmods/java.desktop.jmod(!**.jar;!module-info.class)");
-        template.add(4, "-libraryjars  <java.home>/jmods/jdk.unsupported.jmod(!**.jar;!module-info.class)");
+        List<Path> javaRuntimeLibraries = getJavaRuntimeLibraries();
+        boolean usingJmods = javaRuntimeLibraries.stream().allMatch(path -> path.toString().endsWith(".jmod"));
+        for (int i = 0; i < javaRuntimeLibraries.size(); i++) {
+            String filter = usingJmods ? "(!**.jar;!module-info.class)" : "(!module-info.class)";
+            template.add(2 + i, "-libraryjars '" + javaRuntimeLibraries.get(i) + "'" + filter);
+        }
 
         {
             final Stream<File> libraries;
@@ -170,6 +179,67 @@ public class ProguardTask extends BaritoneGradleTask {
         standalone.removeIf(s -> s.contains("# this is the keep api"));
         standalone.add(2, "-printmapping " + new File(this.getRootRelativeFile(PROGUARD_MAPPING_DIR).toFile(), "mappings-" + addCompTypeFirst("standalone.txt")));
         Files.write(getTemporaryFile(compType + PROGUARD_STANDALONE_CONFIG), standalone);
+    }
+
+    private List<Path> getJavaRuntimeLibraries() throws Exception {
+        JavaLauncher javaLauncher = getJavaLauncherForProguard();
+        Path javaHome = javaLauncher.getMetadata().getInstallationPath().getAsFile().toPath();
+        Path jmodsDirectory = javaHome.resolve("jmods");
+        List<Path> jmods = JAVA_RUNTIME_MODULES.stream()
+                .map(module -> jmodsDirectory.resolve(module + ".jmod"))
+                .toList();
+
+        if (jmods.stream().allMatch(Files::isRegularFile)) {
+            return jmods;
+        }
+
+        // Some distributions keep the runtime image but package the jmods separately.
+        // ProGuard can read the modular classes from directories, so extract the same
+        // three modules rather than silently omitting the Java libraries.
+        Path runtimeImage = javaHome.resolve("lib").resolve("modules");
+        Path jimage = javaLauncher.getExecutablePath().getAsFile().toPath()
+                .resolveSibling(isWindows() ? "jimage.exe" : "jimage");
+        if (!Files.isRegularFile(runtimeImage) || !Files.isRegularFile(jimage)) {
+            throw new IllegalStateException("Java toolchain has neither jmods nor an extractable runtime image: " + javaHome);
+        }
+
+        Path extractedRuntime = getTemporaryFile("java-runtime");
+        getProject().delete(extractedRuntime);
+        Files.createDirectories(extractedRuntime);
+
+        String includes = JAVA_RUNTIME_MODULES.stream()
+                .map(module -> "glob:/" + module + "/**")
+                .reduce((left, right) -> left + "," + right)
+                .orElseThrow();
+        Process process = new ProcessBuilder(
+                jimage.toString(),
+                "extract",
+                "--include", includes,
+                "--dir", extractedRuntime.toString(),
+                runtimeImage.toString()
+        ).inheritIO().start();
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IllegalStateException("Failed to extract Java runtime image with exit code " + exitCode);
+        }
+
+        List<Path> extractedModules = JAVA_RUNTIME_MODULES.stream()
+                .map(extractedRuntime::resolve)
+                .toList();
+        List<Path> representativeClasses = List.of(
+                extractedModules.get(0).resolve("java/lang/Object.class"),
+                extractedModules.get(1).resolve("java/awt/Desktop.class"),
+                extractedModules.get(2).resolve("sun/misc/Unsafe.class")
+        );
+        if (!representativeClasses.stream().allMatch(Files::isRegularFile)) {
+            throw new IllegalStateException("Java runtime image did not contain all required modules: " + runtimeImage);
+        }
+
+        return extractedModules;
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
     }
 
     private Stream<File> acquireDependencies() {
