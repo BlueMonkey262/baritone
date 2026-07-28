@@ -20,9 +20,11 @@ package baritone.behavior;
 import baritone.Baritone;
 import baritone.api.BaritoneAPI;
 import baritone.api.event.events.TickEvent;
+import baritone.api.utils.Helper;
 import baritone.api.utils.input.Input;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.ItemStack;
 
@@ -31,20 +33,47 @@ import net.minecraft.world.item.ItemStack;
  * <p>
  * Vanilla only keeps an item in use while the use key is held: as soon as it isn't, the client tells
  * the server to cancel, and eating never finishes. So we start the use through the player controller
- * like any other right click, then hold the key down ourselves until the food is gone. The key is
- * only ever held while we're actually mid-use, so the game's "held use key" handling can't run off
- * and interact with whatever we happen to be looking at.
+ * like any other right click, then hold the key down ourselves for the whole meal.
+ * <p>
+ * The key must stay down until the use genuinely ends, because the food is consumed by
+ * {@code LivingEntity#completeUsingItem}, which only runs server side. Letting go even one tick
+ * early sends the cancel before the server's own counter has run out, and the meal is thrown away
+ * having eaten nothing.
+ * <p>
+ * Holding a vanilla key down is only safe because of where we sit in the tick. Baritone's tick event
+ * fires before {@code Minecraft#handleKeybinds}, so the first tick on which we notice the use has
+ * ended is also a tick where we let go before the game looks at the key. It therefore never sees the
+ * use key held while nothing is being used, which is the state that would make it right click
+ * whatever happens to be under the crosshair.
  * <p>
  * Registered last, after the processes have had their turn, so the selected slot we set is the one
  * the player tick sees -- otherwise the builder switching to its building material every tick would
  * cancel the meal.
  */
-public final class EatBehavior extends Behavior {
+public final class EatBehavior extends Behavior implements Helper {
+
+    /**
+     * The longest we'll stay committed to a meal. Vanilla's slowest food takes 32 ticks, so this is
+     * pure insurance: if the client and server ever disagree about whether we're still eating, it
+     * stops us holding the use key and the hotbar hostage indefinitely.
+     */
+    private static final int MAX_EATING_TICKS = 100;
 
     /**
      * The slot we're eating out of, or -1 if we aren't eating.
      */
     private int eatingSlot = -1;
+
+    /**
+     * How long the current meal has been going on, for {@link #MAX_EATING_TICKS}.
+     */
+    private int eatingTicks;
+
+    /**
+     * The last thing that stopped us eating, so that {@code chatDebug} says it once when it changes
+     * rather than twenty times a second.
+     */
+    private String lastNote;
 
     public EatBehavior(Baritone baritone) {
         super(baritone);
@@ -65,24 +94,37 @@ public final class EatBehavior extends Behavior {
             return;
         }
         if (ctx.player().getFoodData().getFoodLevel() > Baritone.settings().autoEatFoodLevel.value) {
+            note("not hungry yet (" + ctx.player().getFoodData().getFoodLevel()
+                    + " > autoEatFoodLevel " + Baritone.settings().autoEatFoodLevel.value + ")");
             return;
         }
         if (ctx.player().isUsingItem()) {
-            return; // already busy with something, whether ours or the player's own
+            note("something is already being used"); // whether ours or the player's own
+            return;
         }
         if (baritone.getInputOverrideHandler().isInputForcedDown(Input.CLICK_LEFT)) {
-            return; // mid-mine; eating now would throw away the breaking progress
+            note("mid-mine, waiting for a gap"); // eating now would throw away the breaking progress
+            return;
         }
         int slot = bestFoodSlot();
         if (slot < 0) {
+            note("nothing edible on the hotbar");
             return;
         }
+        int previousSlot = ctx.player().getInventory().getSelectedSlot();
         ctx.player().getInventory().setSelectedSlot(slot);
-        ctx.playerController().processRightClick(ctx.player(), ctx.world(), InteractionHand.MAIN_HAND);
+        InteractionResult result = ctx.playerController().processRightClick(ctx.player(), ctx.world(), InteractionHand.MAIN_HAND);
         if (!ctx.player().isUsingItem()) {
-            return; // didn't take, e.g. the server hasn't caught up with the slot switch yet
+            // didn't take, e.g. the server hasn't caught up with the slot switch yet. Put the hotbar
+            // back where we found it rather than leaving whoever is building holding a carrot
+            ctx.player().getInventory().setSelectedSlot(previousSlot);
+            note("right clicked " + ctx.player().getInventory().getNonEquipmentItems().get(slot).getItem()
+                    + " in slot " + slot + " but no use started, result was " + result);
+            return;
         }
+        note("eating " + ctx.player().getInventory().getNonEquipmentItems().get(slot).getItem() + " from slot " + slot);
         eatingSlot = slot;
+        eatingTicks = 0;
         holdUseKey(true);
     }
 
@@ -101,18 +143,28 @@ public final class EatBehavior extends Behavior {
     }
 
     private void continueEating() {
-        if (!ctx.player().isUsingItem() || !isEdible(ctx.player().getInventory().getNonEquipmentItems().get(eatingSlot))) {
+        if (!ctx.player().isUsingItem()) {
+            note("meal ended after " + eatingTicks + " ticks, food level now "
+                    + ctx.player().getFoodData().getFoodLevel());
+            stopEating();
+            return;
+        }
+        if (++eatingTicks > MAX_EATING_TICKS) {
+            note("giving up on the meal after " + MAX_EATING_TICKS + " ticks");
+            stopEating();
+            return;
+        }
+        if (!isEdible(ctx.player().getInventory().getNonEquipmentItems().get(eatingSlot))) {
+            note("what we were eating is no longer in slot " + eatingSlot);
             stopEating();
             return;
         }
         // keep hold of both the key and the slot; a process switching hotbar slots under us would
         // change the held item, and vanilla cancels the use when that happens
         ctx.player().getInventory().setSelectedSlot(eatingSlot);
-        // let go on the last tick of the meal. the food still lands -- the client only cancels a use
-        // it's still in the middle of -- and it means the key is never down on a tick where we
-        // aren't eating, which is when the game's held-use handling would fire at whatever is under
-        // the crosshair
-        holdUseKey(ctx.player().getUseItemRemainingTicks() > 1);
+        // hold on all the way to the end. the server is the one that finishes the meal, so letting
+        // go early cancels it having eaten nothing
+        holdUseKey(true);
     }
 
     private void stopEating() {
@@ -120,11 +172,23 @@ public final class EatBehavior extends Behavior {
             return;
         }
         eatingSlot = -1;
+        eatingTicks = 0;
         holdUseKey(false);
     }
 
     private void holdUseKey(boolean down) {
         ctx.minecraft().options.keyUse.setDown(down);
+    }
+
+    /**
+     * Says what we're doing, or what's stopping us, once per change rather than once per tick. Only
+     * visible with {@code chatDebug} on, since none of it is interesting when this works.
+     */
+    private void note(String what) {
+        if (!what.equals(lastNote)) {
+            lastNote = what;
+            logDebug("autoEat: " + what);
+        }
     }
 
     /**
