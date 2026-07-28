@@ -188,11 +188,11 @@ schematic, so a non-temporary process taking control would destroy the in-progre
 ## 4. Building
 
 ```
-JAVA_HOME=<full JDK 25 with jmods/> ./gradlew build
+./gradlew build
 ```
 
-Output in `dist/`. A trimmed JDK without a `jmods/` directory compiles fine but fails at the
-`proguard` step.
+Output in `dist/`. The release tasks use a JDK's `jmods/` when present, or extract the required
+modules from its runtime image when they are packaged separately.
 
 **Never overwrite the jar while Minecraft is running.** Fabric loads classes lazily from it all
 session; replacing the file mid-run causes `ZipException: invalid LOC header` and a
