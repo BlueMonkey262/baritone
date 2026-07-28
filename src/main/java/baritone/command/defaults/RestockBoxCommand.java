@@ -32,7 +32,9 @@ import baritone.Baritone;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -124,7 +126,7 @@ public class RestockBoxCommand extends Command {
     private void indexBoxes(IArgConsumer args) throws CommandException {
         args.requireMax(1);
         boolean all = args.hasAny() && args.getString().equalsIgnoreCase("all");
-        if (baritone.getRestockProcess().requestIndexing(all)) {
+        if (baritone.getRestockProcess().requestIndexing(all, this::builderWants)) {
             return; // the process logs its own progress
         }
         if (all) {
@@ -132,6 +134,16 @@ public class RestockBoxCommand extends Command {
         } else {
             logDirect("Every registered box in range has already been indexed. Use '#indexboxes all' to re-check them.");
         }
+    }
+
+    /**
+     * A manual indexing run can happen while a build is paused, so it uses the same conservative
+     * inventory rule as a run the builder started itself rather than assuming every block is
+     * disposable.
+     */
+    private boolean builderWants(ItemStack stack) {
+        return !(stack.getItem() instanceof BlockItem)
+                || baritone.getBuilderProcess().schematicWants(((BlockItem) stack.getItem()).getBlock());
     }
 
     /**
