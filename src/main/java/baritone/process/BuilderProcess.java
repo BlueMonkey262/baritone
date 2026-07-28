@@ -131,11 +131,6 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      */
     private static final int ORIENT_MAX_STAND_DISTANCE = 4;
 
-    /**
-     * How close we have to be to a block before the give-up timer for its stand position starts.
-     */
-    private static final int ORIENT_TIMER_RANGE = 16;
-
     private HashSet<BetterBlockPos> incorrectPositions;
     private LongOpenHashSet observedCompleted; // positions that are completed even if they're out of render distance and we can't make sure right now
     private String name;
@@ -171,10 +166,15 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      */
     private boolean clearingOnly;
     /**
-     * The goal we handed to the pathing behaviour last tick, and how many times in a row it has
-     * changed. Used to detect the builder dithering between targets instead of committing to one.
+     * The destination selected by the last live path, and how many times in a row that destination
+     * has changed. The assembled goal is a set of candidates, not the destination A* chose.
      */
-    private Goal lastGoal;
+    private BetterBlockPos lastSelectedDestination;
+    /**
+     * The candidate set used by the last failed calculation, so repeated failures can be counted
+     * while there is no path whose destination we can observe.
+     */
+    private Goal lastFailedGoal;
     private int consecutiveReroutes;
     /**
      * While positive, we stop re-planning and let the current path run. Counted down per tick.
@@ -199,10 +199,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      */
     private final Map<Long, Integer> orientFirstSeen = new HashMap<>();
     /**
-     * Which way we have to be facing to place each desired state, worked out by simulation once per
-     * state rather than once per position.
+     * When an orientation-specific stand position has been skipped, so it can be tried again
+     * without making a wrong-facing placement the new normal.
      */
-    private final Map<BlockState, Set<Direction>> orientationCache = new HashMap<>();
+    private final Map<Long, Integer> orientSkippedUntil = new HashMap<>();
 
     public BuilderProcess(Baritone baritone) {
         super(baritone);
@@ -255,13 +255,14 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         // substitution for air could, so that one case bows out.
         this.clearingOnly = isPureAir(schematic)
                 && !Baritone.settings().buildSubstitutes.value.containsKey(Blocks.AIR);
-        this.lastGoal = null;
+        this.lastSelectedDestination = null;
+        this.lastFailedGoal = null;
         this.consecutiveReroutes = 0;
         this.rerouteCommitTicks = 0;
         this.churn.clear();
         this.churnBlacklist.clear();
         this.orientFirstSeen.clear();
-        this.orientationCache.clear();
+        this.orientSkippedUntil.clear();
         this.layer = Baritone.settings().startAtLayer.value;
         this.stopAtHeight = schematic.heightY();
         if (Baritone.settings().buildOnlySelection.value && buildingSelectionSchematic) {  // currently redundant but safer maybe
@@ -469,8 +470,12 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                         if (pathNeedsOpen(new BetterBlockPos(x, y, z))) {
                             continue; // we're about to walk through here; don't wall ourselves in
                         }
-                        if (isChurnBlacklisted(new BetterBlockPos(x, y, z))) {
+                        BetterBlockPos pos = new BetterBlockPos(x, y, z);
+                        if (isChurnBlacklisted(pos)) {
                             continue; // detected looping on this block; leave it be
+                        }
+                        if (isOrientationSkipped(pos)) {
+                            continue; // its correct stand position was unreachable; try it again later
                         }
                         desirableOnHotbar.add(desired);
                         Optional<Placement> opt = possibleToPlace(desired, x, y, z, bcc.bsi);
@@ -562,11 +567,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      */
     private PathingCommand forceRerouteAfterChurn(boolean calcFailed, boolean isSafeToCancel, int recursions) {
         incorrectPositions = null;
-        lastGoal = null;
+        lastSelectedDestination = null;
+        lastFailedGoal = null;
         consecutiveReroutes = 0;
         rerouteCommitTicks = 0;
         churn.clear();
-        churnBlacklist.clear();
         return onTick(calcFailed, isSafeToCancel, recursions + 1);
     }
 
@@ -700,6 +705,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * the live rotation turns that into a missed tick instead of a wrong block.
      */
     private boolean placementStillCorrect(Placement place) {
+        startOrientationTimer(place.placeAgainst.relative(place.side), place.desired);
         HitResult result = RayTraceUtils.rayTraceTowards(ctx.player(), ctx.playerRotations(), ctx.playerController().getBlockReachDistance(), true);
         if (result == null || result.getType() != HitResult.Type.BLOCK) {
             return false;
@@ -742,6 +748,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         }
         approxPlaceable = approxPlaceable(36);
         builderTick++;
+        churnBlacklist.entrySet().removeIf(entry -> builderTick >= entry.getValue());
         if (baritone.getInputOverrideHandler().isInputForcedDown(Input.CLICK_LEFT)) {
             ticks = 5;
         } else {
@@ -969,12 +976,18 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     layer++;
                     return onTick(calcFailed, isSafeToCancel, recursions + 1);
                 }
+                if (hasOrientationSkipped()) {
+                    // Keep ticking while the timed-out position is out of the goal set. A goal at
+                    // our feet lets the retry timer advance without pretending that the position
+                    // is placeable or pausing the whole build.
+                    return new PathingCommandContext(new GoalBlock(ctx.playerFeet()), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
+                }
                 logDirect("Unable to do it. Pausing. resume to resume, cancel to cancel");
                 paused = true;
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
         }
-        return commitAwarePathingCommand(goal, bcc);
+        return commitAwarePathingCommand(goal, bcc, calcFailed);
     }
 
     private boolean recalc(BuilderCalculationContext bcc) {
@@ -1008,40 +1021,81 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     /**
      * Normally the builder forces a full goal revalidation every tick, which is what lets it react
      * to the world changing. The downside is there's no loop detection anywhere in the builder: if
-     * the goal it picks is unreachable, it will re-pick it forever and stand still recalculating.
+     * the destination it selects is unreachable, it can keep recalculating without moving.
      * <p>
-     * So count how many ticks in a row the chosen goal actually changed. Past the threshold, stop
-     * re-planning for a short while and let whatever path is already in flight run to completion.
-     * The commit is deliberately temporary -- permanently pinning the goal would stop the builder
+     * So count how many times in a row the selected path destination changes. When no path exists,
+     * repeated failures for the same assembled target set provide the equivalent signal. Past the
+     * threshold, stop re-planning for a short while and let a live path or calculation settle. The
+     * commit is deliberately temporary -- permanently pinning the route would stop the builder
      * reacting to anything at all.
      */
-    private PathingCommand commitAwarePathingCommand(Goal goal, BuilderCalculationContext bcc) {
+    private BetterBlockPos selectedDestination() {
+        if (baritone.getPathingBehavior().getCurrent() != null) {
+            return baritone.getPathingBehavior().getCurrent().getPath().getDest();
+        }
+        if (baritone.getPathingBehavior().getNext() != null) {
+            return baritone.getPathingBehavior().getNext().getPath().getDest();
+        }
+        return null;
+    }
+
+    private boolean hasLivePathOrCalculation() {
+        return baritone.getPathingBehavior().getCurrent() != null
+                || baritone.getPathingBehavior().getNext() != null
+                || baritone.getPathingBehavior().getInProgress().isPresent();
+    }
+
+    private void resetRerouteObservation() {
+        lastSelectedDestination = null;
+        lastFailedGoal = null;
+        consecutiveReroutes = 0;
+    }
+
+    private PathingCommand commitAwarePathingCommand(Goal goal, BuilderCalculationContext bcc, boolean calcFailed) {
         int maxReroutes = Baritone.settings().builderMaxReroutes.value;
         if (maxReroutes <= 0) {
             return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
         }
 
         if (rerouteCommitTicks > 0) {
-            rerouteCommitTicks--;
-            if (rerouteCommitTicks == 0) {
-                // give normal planning another chance now that we've had time to actually move
-                consecutiveReroutes = 0;
-                lastGoal = null;
+            if (hasLivePathOrCalculation()) {
+                rerouteCommitTicks--;
+                if (rerouteCommitTicks == 0) {
+                    // give normal planning another chance now that we've had time to actually move
+                    resetRerouteObservation();
+                }
+                // A null goal here means carry on with the live goal and path. There is no such
+                // path to carry on with when the calculation that triggered the commit failed.
+                return new PathingCommandContext(null, PathingCommandType.SET_GOAL_AND_PATH, bcc);
             }
-            // null goal with SET_GOAL_AND_PATH means "carry on with the current goal and path"
-            return new PathingCommandContext(null, PathingCommandType.SET_GOAL_AND_PATH, bcc);
+            rerouteCommitTicks = 0;
         }
 
-        if (goal.equals(lastGoal)) {
-            consecutiveReroutes = 0;
-        } else {
-            lastGoal = goal;
-            consecutiveReroutes++;
-            if (consecutiveReroutes > maxReroutes) {
-                rerouteCommitTicks = Baritone.settings().builderRerouteCommitTicks.value;
+        BetterBlockPos selected = selectedDestination();
+        if (selected != null) {
+            noteActiveOrientation(goal, selected);
+            lastFailedGoal = null;
+            if (selected.equals(lastSelectedDestination)) {
                 consecutiveReroutes = 0;
-                logDebug("Builder changed its mind " + maxReroutes + " times in a row; sticking with the current path for "
-                        + rerouteCommitTicks + " ticks");
+            } else {
+                lastSelectedDestination = selected;
+                consecutiveReroutes++;
+            }
+        } else if (calcFailed) {
+            lastSelectedDestination = null;
+            if (goal.equals(lastFailedGoal)) {
+                consecutiveReroutes++;
+            } else {
+                lastFailedGoal = goal;
+                consecutiveReroutes = 1;
+            }
+        }
+        if (consecutiveReroutes > maxReroutes) {
+            rerouteCommitTicks = Baritone.settings().builderRerouteCommitTicks.value;
+            consecutiveReroutes = 0;
+            logDebug("Builder kept selecting or failing to reach a destination " + maxReroutes + " times in a row; committing for "
+                    + rerouteCommitTicks + " ticks");
+            if (hasLivePathOrCalculation()) {
                 return new PathingCommandContext(null, PathingCommandType.SET_GOAL_AND_PATH, bcc);
             }
         }
@@ -1072,6 +1126,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 logDirect("Schematic is too large to work out which blocks are junk, so I won't discard anything.");
             } else {
                 Set<Block> palette = new HashSet<>();
+                // An empty placeable list makes SubstituteSchematic choose its first substitute,
+                // even though a later live scan may choose another one that is in the inventory.
+                // Keep every configured option so restocking never treats an active substitute as
+                // rubble.
+                Baritone.settings().buildSubstitutes.value.values().forEach(palette::addAll);
                 for (int y = 0; y < target.heightY(); y++) {
                     for (int z = 0; z < target.lengthZ(); z++) {
                         for (int x = 0; x < target.widthX(); x++) {
@@ -1196,6 +1255,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                         if (valid(bcc.bsi.get0(x, y, z), desired, false)) {
                             incorrectPositions.remove(pos);
                             observedCompleted.add(BetterBlockPos.longHash(pos));
+                            clearOrientationState(pos);
                         } else {
                             incorrectPositions.add(pos);
                             observedCompleted.remove(BetterBlockPos.longHash(pos));
@@ -1232,6 +1292,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                         // we can directly observe this block, it is in render distance
                         if (valid(bcc.bsi.get0(blockX, blockY, blockZ), schematic.desiredState(x, y, z, current, this.approxPlaceable), false)) {
                             observedCompleted.add(BetterBlockPos.longHash(blockX, blockY, blockZ));
+                            clearOrientationState(new BetterBlockPos(blockX, blockY, blockZ));
                         } else {
                             incorrectPositions.add(new BetterBlockPos(blockX, blockY, blockZ));
                             observedCompleted.remove(BetterBlockPos.longHash(blockX, blockY, blockZ));
@@ -1303,7 +1364,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         // The re-placement loop this guards against happens in searchForPlacables, not here.
         placeable.forEach(pos -> {
             if (!placeable.contains(pos.below()) && !placeable.contains(pos.below(2))) {
-                toPlace.add(placementGoal(pos, bcc));
+                Goal goal = placementGoal(pos, bcc);
+                if (goal != null) {
+                    toPlace.add(goal);
+                }
             }
         });
         sourceLiquids.forEach(pos -> toPlace.add(new GoalBlock(pos.above())));
@@ -1423,6 +1487,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 // if which way we're facing decides how this block comes out, go and stand somewhere
                 // that gets it right rather than placing from whichever side we walked up to
                 Goal oriented = orientedPlacementGoal(pos, bcc.getSchematic(pos.getX(), pos.getY(), pos.getZ(), current));
+                if (isOrientationSkipped(pos)) {
+                    return null;
+                }
                 return oriented != null ? oriented : new GoalAdjacent(pos, pos.relative(facing), allowSameLevel);
             }
         }
@@ -1454,8 +1521,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * target produce the facing the schematic asked for.
      * <p>
      * Returns {@code null} when this doesn't apply: the setting is off, the block doesn't care which
-     * way we're facing, no facing works (a six-way block wanting up/down, say), or we've already
-     * spent long enough trying and it's time to just place the thing.
+     * way we're facing, no facing works (a six-way block wanting up/down, say), or this position is
+     * being skipped after its stand position timed out. A timed-out position is deliberately not
+     * handed to the ordinary adjacent goal, because that goal can be satisfied by a position from
+     * which the required state cannot be placed.
      */
     private Goal orientedPlacementGoal(BlockPos pos, BlockState desired) {
         if (!Baritone.settings().buildOrientBeforePlacing.value || desired == null) {
@@ -1464,18 +1533,18 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         if (Baritone.settings().buildIgnoreDirection.value) {
             return null; // they've said they don't care how it comes out; don't walk around for it
         }
+        if (isOrientationSkipped(pos)) {
+            return null;
+        }
         long hash = BetterBlockPos.longHash(pos.getX(), pos.getY(), pos.getZ());
-        // only start the clock once we're actually in the neighbourhood, otherwise a long walk
-        // across the build counts against a block we haven't started on yet
-        if (ctx.playerFeet().distSqr(pos) < ORIENT_TIMER_RANGE * ORIENT_TIMER_RANGE) {
-            Integer firstSeen = orientFirstSeen.get(hash);
-            if (firstSeen == null) {
-                orientFirstSeen.put(hash, builderTick);
-            } else if (builderTick - firstSeen > Baritone.settings().buildOrientTimeoutTicks.value) {
-                // the spot we want may be walled in or otherwise unreachable; don't stall the build
-                // over it forever. placementStillCorrect still keeps us from placing it wrong.
-                return null;
-            }
+        Integer firstSeen = orientFirstSeen.get(hash);
+        if (firstSeen != null && builderTick - firstSeen > Baritone.settings().buildOrientTimeoutTicks.value) {
+            // The spot we want may be walled in or otherwise unreachable. Leave this position out
+            // of the goal set for a while, but keep its strict orientation checks when we retry it.
+            int retryTicks = Math.max(1, Baritone.settings().buildOrientTimeoutTicks.value);
+            orientSkippedUntil.put(hash, builderTick + retryTicks);
+            orientFirstSeen.remove(hash);
+            return null;
         }
         Set<Direction> facings = acceptableFacings(pos, desired);
         if (facings.isEmpty() || facings.size() == 4) {
@@ -1486,18 +1555,90 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     }
 
     /**
+     * Starts the orientation timer only when the builder has either selected an oriented target or
+     * got as far as making a real placement attempt. Looking at every nearby candidate while
+     * assembling the goal set is not enough: that would time out blocks before the pathfinder had
+     * chosen any of them.
+     */
+    private void startOrientationTimer(BlockPos pos, BlockState desired) {
+        if (!Baritone.settings().buildOrientBeforePlacing.value
+                || Baritone.settings().buildIgnoreDirection.value
+                || desired == null
+                || isOrientationSkipped(pos)) {
+            return;
+        }
+        Set<Direction> facings = acceptableFacings(pos, desired);
+        if (!facings.isEmpty() && facings.size() != 4) {
+            orientFirstSeen.putIfAbsent(BetterBlockPos.longHash(pos.getX(), pos.getY(), pos.getZ()), builderTick);
+        }
+    }
+
+    /**
+     * Starts the orientation timer for a target that the pathfinder has actually selected.
+     */
+    private void noteActiveOrientation(Goal goal, BlockPos destination) {
+        BlockPos target = orientedTarget(goal, destination);
+        if (target != null && !isOrientationSkipped(target)) {
+            orientFirstSeen.putIfAbsent(BetterBlockPos.longHash(target.getX(), target.getY(), target.getZ()), builderTick);
+        }
+    }
+
+    private BlockPos orientedTarget(Goal goal, BlockPos destination) {
+        if (goal instanceof GoalPlaceOriented) {
+            return goal.isInGoal(destination.getX(), destination.getY(), destination.getZ())
+                    ? ((GoalPlaceOriented) goal).getGoalPos()
+                    : null;
+        }
+        if (goal instanceof GoalComposite) {
+            for (Goal candidate : ((GoalComposite) goal).goals()) {
+                BlockPos target = orientedTarget(candidate, destination);
+                if (target != null) {
+                    return target;
+                }
+            }
+        }
+        if (goal instanceof JankyGoalComposite) {
+            BlockPos target = orientedTarget(((JankyGoalComposite) goal).primary, destination);
+            return target != null ? target : orientedTarget(((JankyGoalComposite) goal).fallback, destination);
+        }
+        return null;
+    }
+
+    private boolean isOrientationSkipped(BlockPos pos) {
+        long hash = BetterBlockPos.longHash(pos.getX(), pos.getY(), pos.getZ());
+        Integer until = orientSkippedUntil.get(hash);
+        if (until == null) {
+            return false;
+        }
+        if (builderTick >= until) {
+            orientSkippedUntil.remove(hash);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean hasOrientationSkipped() {
+        orientSkippedUntil.entrySet().removeIf(entry -> builderTick >= entry.getValue());
+        return !orientSkippedUntil.isEmpty();
+    }
+
+    private void clearOrientationState(BlockPos pos) {
+        long hash = BetterBlockPos.longHash(pos.getX(), pos.getY(), pos.getZ());
+        orientFirstSeen.remove(hash);
+        orientSkippedUntil.remove(hash);
+    }
+
+    /**
      * Which directions we'd have to be facing for vanilla to give us {@code desired}.
      * <p>
      * Worked out by simulating the placement at each of the four horizontal yaws rather than by
      * assuming a sign: stairs face the way you look, furnaces and chests face the opposite way, and
      * pillars key off the clicked face entirely. Simulating covers all of them without a table of
      * special cases. {@code HALF} is waived because the hit vector picks that, not where we stand.
+     * The simulation reads the live neighbours, so its answer is intentionally not shared between
+     * positions or ticks.
      */
     private Set<Direction> acceptableFacings(BlockPos pos, BlockState desired) {
-        Set<Direction> cached = orientationCache.get(desired);
-        if (cached != null) {
-            return cached;
-        }
         Set<Direction> result = EnumSet.noneOf(Direction.class);
         ItemStack stack = ItemStack.EMPTY;
         if (approxPlaceable != null) {
@@ -1519,7 +1660,6 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 result.add(d);
             }
         }
-        orientationCache.put(desired, result);
         return result;
     }
 
@@ -1718,7 +1858,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     public void onLostControl() {
         clearRestockGiveUps();
         missingMaterials = new HashMap<>();
-        lastGoal = null;
+        lastSelectedDestination = null;
+        lastFailedGoal = null;
         consecutiveReroutes = 0;
         rerouteCommitTicks = 0;
         incorrectPositions = null;
@@ -1730,7 +1871,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         paused = false;
         observedCompleted = null;
         orientFirstSeen.clear();
-        orientationCache.clear();
+        orientSkippedUntil.clear();
     }
 
     @Override
