@@ -50,6 +50,17 @@ public final class BlockBreakHelper {
     }
 
     public void tick(boolean isLeftClick) {
+        if (ctx.player() != null && ctx.player().isUsingItem()) {
+            // Vanilla refuses to attack while an item is in use, but it enforces that in the keybind
+            // handling we deliberately bypass by driving the player controller directly. Mining
+            // anyway sends a held item packet from the middle of the tick, at a point where a
+            // process has selected its tool rather than whatever is being used, and the server
+            // stops a main hand use the moment the held slot changes. The meal, or the bow being
+            // drawn, is thrown away without anything client side noticing until the round trip
+            // completes a few ticks later.
+            wasHitting = false;
+            return;
+        }
         if (breakDelayTimer > 0) {
             breakDelayTimer--;
             return;
