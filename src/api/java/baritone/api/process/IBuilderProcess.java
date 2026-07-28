@@ -76,7 +76,9 @@ public interface IBuilderProcess extends IBaritoneProcess {
      * @param block A block
      * @return {@code true} if the schematic wants this block, or if we can't tell
      */
-    boolean schematicWants(Block block);
+    default boolean schematicWants(Block block) {
+        return true;
+    }
 
     /**
      * Whether this position falls inside the schematic currently being built.
@@ -89,7 +91,9 @@ public interface IBuilderProcess extends IBaritoneProcess {
      * @param pos A position in the world
      * @return {@code true} if a build is active and this position is within its bounds
      */
-    boolean managesPosition(BlockPos pos);
+    default boolean managesPosition(BlockPos pos) {
+        return false;
+    }
 
     void resume();
 

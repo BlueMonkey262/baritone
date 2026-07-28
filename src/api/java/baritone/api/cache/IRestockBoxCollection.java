@@ -20,6 +20,7 @@ package baritone.api.cache;
 import baritone.api.utils.BetterBlockPos;
 import net.minecraft.world.item.Item;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 
@@ -38,6 +39,25 @@ public interface IRestockBoxCollection {
      * @return The registered box
      */
     IRestockBox addBox(BetterBlockPos pos);
+
+    /**
+     * Registers several boxes together and returns the number that were new. Implementations that
+     * persist registrations should override this so a scan can commit its whole result once; the
+     * default keeps older third-party collections source-compatible.
+     *
+     * @param positions The positions of the shulker boxes
+     * @return The number of newly registered boxes
+     */
+    default int addBoxes(Collection<BetterBlockPos> positions) {
+        int added = 0;
+        for (BetterBlockPos pos : positions) {
+            if (getBox(pos) == null) {
+                addBox(pos);
+                added++;
+            }
+        }
+        return added;
+    }
 
     /**
      * @param pos The position to deregister

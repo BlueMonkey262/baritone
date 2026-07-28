@@ -244,6 +244,8 @@ public final class Settings {
     /**
      * Start eating once hunger has dropped to this or below, out of 20. The default leaves three
      * empty bars, enough that a big food isn't wasted but still short of losing the sprint.
+     * Keep this between {@code 0} and {@code 19}, inclusive; vanilla refuses an eating action at
+     * full hunger, so a higher value would retry forever.
      *
      * @see #autoEat
      */
@@ -373,6 +375,8 @@ public final class Settings {
      * How far back from the block to stand when placing an orientation-sensitive block. Two blocks or
      * more keeps the look angle well inside the quadrant that decides the facing; standing right next
      * to the block puts it near a boundary where aim jitter flips the orientation.
+     * Keep this between {@code 1} and {@code 4}, inclusive, because a larger stand distance is
+     * beyond usable reach.
      *
      * @see #buildOrientBeforePlacing
      */
@@ -563,12 +567,16 @@ public final class Settings {
     /**
      * How many extra stacks beyond the immediate shortfall to grab while we're at the box, so that
      * we don't have to walk back again straight away.
+     * Keep this between {@code 0} and {@code 33,554,431}, inclusive, so converting the surplus to
+     * items with {@code stacks * 64} remains representable as a positive {@code int}; the final
+     * shortfall-plus-surplus target must also be saturated at {@link Integer#MAX_VALUE}.
      */
     public final Setting<Integer> restockExtraStacks = new Setting<>(1);
 
     /**
      * How long to wait, in ticks, for the server to open a container or send its contents before
      * giving up on that box and trying the next one.
+     * Keep this at {@code 0} or above; a negative timeout expires before the first wait.
      */
     public final Setting<Integer> restockOpenTimeoutTicks = new Setting<>(100);
 

@@ -24,9 +24,14 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.*;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 /**
@@ -39,6 +44,8 @@ import java.util.*;
  * @see IRestockBoxCollection
  */
 public class RestockBoxCollection implements IRestockBoxCollection {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("Baritone");
 
     /**
      * Magic value to detect invalid restock box files
@@ -53,7 +60,9 @@ public class RestockBoxCollection implements IRestockBoxCollection {
         if (!Files.exists(directory)) {
             try {
                 Files.createDirectories(directory);
-            } catch (IOException ignored) {}
+            } catch (IOException ex) {
+                LOGGER.error("Failed to create restock box directory " + directory, ex);
+            }
         }
         this.boxes = new HashMap<>();
         load();
@@ -63,12 +72,27 @@ public class RestockBoxCollection implements IRestockBoxCollection {
         return this.directory.resolve("boxes.mp4");
     }
 
+    private Path temporaryFile() {
+        return this.directory.resolve("boxes.mp4.tmp");
+    }
+
+    private Path backupFile() {
+        return this.directory.resolve("boxes.mp4.bak");
+    }
+
     private synchronized void load() {
-        Path fileName = file();
-        if (!Files.exists(fileName)) {
+        if (load(file())) {
             return;
         }
+        load(backupFile());
+    }
 
+    private boolean load(Path fileName) {
+        if (!Files.exists(fileName)) {
+            return false;
+        }
+
+        Map<BetterBlockPos, RestockBox> loaded = new HashMap<>();
         try (
                 FileInputStream fileIn = new FileInputStream(fileName.toFile());
                 BufferedInputStream bufIn = new BufferedInputStream(fileIn);
@@ -80,6 +104,9 @@ public class RestockBoxCollection implements IRestockBoxCollection {
             }
 
             long length = in.readLong();
+            if (length < 0) {
+                throw new IOException("Negative restock box count " + length);
+            }
             while (length-- > 0) {
                 int x = in.readInt();
                 int y = in.readInt();
@@ -89,7 +116,11 @@ public class RestockBoxCollection implements IRestockBoxCollection {
                 boolean missing = in.readBoolean();
 
                 Map<Item, Integer> contents = new HashMap<>();
+                boolean incomplete = false;
                 int entries = in.readInt();
+                if (entries < 0) {
+                    throw new IOException("Negative item count " + entries);
+                }
                 while (entries-- > 0) {
                     String key = in.readUTF();
                     int count = in.readInt();
@@ -97,24 +128,33 @@ public class RestockBoxCollection implements IRestockBoxCollection {
                     // the box stays registered and will be re-indexed the next time we open it
                     Identifier id = Identifier.tryParse(key);
                     if (id == null) {
+                        incomplete = true;
                         continue;
                     }
                     Item item = BuiltInRegistries.ITEM.getOptional(id).orElse(null);
                     if (item != null) {
                         contents.put(item, count);
+                    } else {
+                        incomplete = true;
                     }
                 }
 
                 BetterBlockPos pos = new BetterBlockPos(x, y, z);
-                this.boxes.put(pos, new RestockBox(pos, creationTimestamp, lastIndexed, contents, missing));
+                loaded.put(pos, new RestockBox(pos, creationTimestamp, incomplete ? 0 : lastIndexed, contents, missing));
             }
-        } catch (IOException ignored) {}
+            this.boxes.putAll(loaded);
+            return true;
+        } catch (IOException ex) {
+            LOGGER.error("Failed to load restock boxes from " + fileName, ex);
+            return false;
+        }
     }
 
     private synchronized void save() {
         Path fileName = file();
+        Path temporaryFile = temporaryFile();
         try (
-                FileOutputStream fileOut = new FileOutputStream(fileName.toFile());
+                FileOutputStream fileOut = new FileOutputStream(temporaryFile.toFile());
                 BufferedOutputStream bufOut = new BufferedOutputStream(fileOut);
                 DataOutputStream out = new DataOutputStream(bufOut)
         ) {
@@ -135,8 +175,35 @@ public class RestockBoxCollection implements IRestockBoxCollection {
                     out.writeInt(entry.getValue());
                 }
             }
+            out.flush();
+            fileOut.getFD().sync();
         } catch (IOException ex) {
-            ex.printStackTrace();
+            LOGGER.error("Failed to save restock boxes to " + fileName, ex);
+            try {
+                Files.deleteIfExists(temporaryFile);
+            } catch (IOException cleanupException) {
+                LOGGER.warn("Failed to remove temporary restock box file " + temporaryFile, cleanupException);
+            }
+            return;
+        }
+
+        try {
+            if (Files.exists(fileName)) {
+                Files.copy(fileName, backupFile(), StandardCopyOption.REPLACE_EXISTING);
+            }
+            try {
+                Files.move(temporaryFile, fileName, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException ex) {
+                LOGGER.warn("Atomic replacement is not supported for restock boxes at " + fileName, ex);
+                Files.move(temporaryFile, fileName, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException ex) {
+            LOGGER.error("Failed to replace restock boxes at " + fileName, ex);
+            try {
+                Files.deleteIfExists(temporaryFile);
+            } catch (IOException cleanupException) {
+                LOGGER.warn("Failed to remove temporary restock box file " + temporaryFile, cleanupException);
+            }
         }
     }
 
@@ -150,6 +217,22 @@ public class RestockBoxCollection implements IRestockBoxCollection {
         this.boxes.put(pos, box);
         save();
         return box;
+    }
+
+    @Override
+    public synchronized int addBoxes(Collection<BetterBlockPos> positions) {
+        int added = 0;
+        for (BetterBlockPos pos : positions) {
+            if (this.boxes.containsKey(pos)) {
+                continue;
+            }
+            this.boxes.put(pos, new RestockBox(pos, System.currentTimeMillis()));
+            added++;
+        }
+        if (added > 0) {
+            save();
+        }
+        return added;
     }
 
     @Override

@@ -26,6 +26,7 @@ import baritone.api.command.argument.IArgConsumer;
 import baritone.api.command.datatypes.RelativeBlockPos;
 import baritone.api.command.exception.CommandException;
 import baritone.api.command.exception.CommandInvalidStateException;
+import baritone.api.command.helpers.TabCompleteHelper;
 import baritone.api.utils.BetterBlockPos;
 import baritone.behavior.ContainerInteractionBehavior;
 import baritone.Baritone;
@@ -60,6 +61,12 @@ public class RestockBoxCommand extends Command {
      */
     private static final int MAX_SCAN_RESULTS = 4096;
 
+    /**
+     * Upper bound on the block radius accepted by {@code #addbox}, so a typo cannot ask the
+     * chunk scanner to materialise an unreasonably large search area.
+     */
+    private static final int MAX_SCAN_RADIUS = 512;
+
     public RestockBoxCommand(IBaritone baritone) {
         super(baritone, "addbox", "removebox", "listboxes", "indexboxes");
     }
@@ -75,7 +82,7 @@ public class RestockBoxCommand extends Command {
                 removeBox(args, boxes);
                 break;
             case "indexboxes":
-                indexBoxes(args);
+                indexBoxes(args, boxes);
                 break;
             case "listboxes":
             default:
@@ -123,9 +130,17 @@ public class RestockBoxCommand extends Command {
     /**
      * Kicks off an indexing run: walk to registered boxes and record what's actually inside.
      */
-    private void indexBoxes(IArgConsumer args) throws CommandException {
+    private void indexBoxes(IArgConsumer args, IRestockBoxCollection boxes) throws CommandException {
         args.requireMax(1);
-        boolean all = args.hasAny() && args.getString().equalsIgnoreCase("all");
+        boolean all = false;
+        if (args.hasAny()) {
+            String option = args.getString();
+            if (!option.equalsIgnoreCase("all")) {
+                throw new CommandInvalidStateException("Expected 'all' or no arguments, not '" + option + "'");
+            }
+            all = true;
+            recheckMissingBoxes(boxes);
+        }
         if (baritone.getRestockProcess().requestIndexing(all, this::builderWants)) {
             return; // the process logs its own progress
         }
@@ -157,6 +172,10 @@ public class RestockBoxCommand extends Command {
         if (radius < 1) {
             throw new CommandInvalidStateException("Radius must be at least 1");
         }
+        if (radius > MAX_SCAN_RADIUS) {
+            logDirect(String.format("Radius %d is too large; scanning only %d blocks.", radius, MAX_SCAN_RADIUS));
+            radius = MAX_SCAN_RADIUS;
+        }
         // every shulker box variant, including the 16 dyed ones (and any added by mods)
         List<Block> shulkerBoxes = BuiltInRegistries.BLOCK.stream()
                 .filter(block -> block instanceof ShulkerBoxBlock)
@@ -169,8 +188,8 @@ public class RestockBoxCommand extends Command {
 
         BetterBlockPos feet = ctx.playerFeet();
         double maxDistSq = (double) radius * radius;
-        int added = 0;
         int alreadyKnown = 0;
+        List<BetterBlockPos> newBoxes = new ArrayList<>();
         for (BlockPos raw : found) {
             BetterBlockPos pos = BetterBlockPos.from(raw);
             if (pos.distSqr(feet) > maxDistSq) {
@@ -180,9 +199,9 @@ public class RestockBoxCommand extends Command {
                 alreadyKnown++;
                 continue;
             }
-            boxes.addBox(pos);
-            added++;
+            newBoxes.add(pos);
         }
+        int added = boxes.addBoxes(newBoxes);
 
         if (added > 0) {
             // newly registered boxes may hold something we'd previously given up on
@@ -195,6 +214,28 @@ public class RestockBoxCommand extends Command {
         logDirect(String.format("Registered %d new shulker box(es) within %d blocks (%d already registered).",
                 added, radius, alreadyKnown));
         logDirect("Contents will be indexed the first time each one is opened. Use #listboxes to review.");
+    }
+
+    /**
+     * A missing flag is only meaningful while the registered chunk is unloaded. A manual full
+     * indexing run can therefore give a box another chance once its chunk is loaded and the block
+     * at the saved position is a shulker box; the indexing process will verify the live menu before
+     * recording its contents.
+     */
+    private void recheckMissingBoxes(IRestockBoxCollection boxes) {
+        Baritone implementation = (Baritone) baritone;
+        if (implementation.bsi == null) {
+            return;
+        }
+        for (IRestockBox box : boxes.getAllBoxes()) {
+            BetterBlockPos pos = box.getLocation();
+            if (!box.isMissing() || !implementation.bsi.worldContainsLoadedChunk(pos.x, pos.z)) {
+                continue;
+            }
+            if (implementation.bsi.get0(pos).getBlock() instanceof ShulkerBoxBlock) {
+                boxes.setMissing(pos, false);
+            }
+        }
     }
 
     /**
@@ -286,6 +327,15 @@ public class RestockBoxCommand extends Command {
     public Stream<String> tabComplete(String label, IArgConsumer args) throws CommandException {
         if (label.equalsIgnoreCase("listboxes")) {
             return Stream.empty();
+        }
+        if (label.equalsIgnoreCase("indexboxes")) {
+            if (args.hasExactlyOne()) {
+                return new TabCompleteHelper()
+                        .append("all")
+                        .filterPrefix(args.peekString())
+                        .stream();
+            }
+            return args.hasAny() ? Stream.empty() : Stream.of("all");
         }
         return args.tabCompleteDatatype(RelativeBlockPos.INSTANCE);
     }

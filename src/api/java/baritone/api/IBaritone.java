@@ -65,10 +65,15 @@ public interface IBaritone {
     IBuilderProcess getBuilderProcess();
 
     /**
+     * Implementations from before restock boxes existed have no process to return, so the default
+     * fails explicitly instead of forcing them to invent a process with unsafe behaviour.
+     *
      * @return The {@link IRestockProcess} instance
      * @see IRestockProcess
      */
-    IRestockProcess getRestockProcess();
+    default IRestockProcess getRestockProcess() {
+        throw new UnsupportedOperationException("This Baritone implementation has no restock process");
+    }
 
     /**
      * @return The {@link IExploreProcess} instance
