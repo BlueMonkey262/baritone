@@ -22,7 +22,6 @@ import baritone.api.event.events.PacketEvent;
 import baritone.api.event.events.type.EventState;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.network.protocol.game.ClientboundContainerSetContentPacket;
-import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.InventoryMenu;
@@ -54,13 +53,6 @@ public final class ContainerInteractionBehavior extends Behavior {
      */
     private int syncedContainerId = -1;
 
-    /**
-     * Incremented every time the server tells us a slot in the open container changed. Callers use
-     * this to wait for the server's answer to a click rather than trusting the client's optimistic
-     * local prediction, which can be rolled back a tick or two later.
-     */
-    private int contentRevision;
-
     public ContainerInteractionBehavior(Baritone baritone) {
         super(baritone);
     }
@@ -73,12 +65,6 @@ public final class ContainerInteractionBehavior extends Behavior {
         if (event.getPacket() instanceof ClientboundContainerSetContentPacket) {
             ClientboundContainerSetContentPacket packet = event.cast();
             this.syncedContainerId = packet.containerId();
-            this.contentRevision++;
-        } else if (event.getPacket() instanceof ClientboundContainerSetSlotPacket) {
-            ClientboundContainerSetSlotPacket packet = event.cast();
-            if (packet.getContainerId() == this.syncedContainerId) {
-                this.contentRevision++;
-            }
         }
     }
 
@@ -104,14 +90,6 @@ public final class ContainerInteractionBehavior extends Behavior {
     public boolean isContainerReadable() {
         AbstractContainerMenu menu = openContainer();
         return menu != null && menu.containerId == this.syncedContainerId;
-    }
-
-    /**
-     * @return A counter that changes whenever the server reports a slot change in the open
-     * container. Compare across ticks to detect that a click was actually acted upon.
-     */
-    public int getContentRevision() {
-        return this.contentRevision;
     }
 
     /**
@@ -171,6 +149,12 @@ public final class ContainerInteractionBehavior extends Behavior {
      * shift-click does, so a genuine {@code ServerboundContainerClickPacket} is sent and the
      * server validates it normally. The menu's {@code stateId} is filled in by that method, so
      * there is nothing extra to track here.
+     * <p>
+     * Note that the move is applied to the local menu <i>before</i> the packet goes out, and that a
+     * click the server agrees with is never acknowledged: it records the slot values we predicted
+     * and {@code broadcastChanges} then reports only the ones that differ. Callers must therefore
+     * read the outcome from the local menu and treat silence as success. Waiting for a server
+     * packet before sending the next click deadlocks.
      *
      * @param menu      The open container menu
      * @param slotIndex The container slot to move
@@ -183,20 +167,24 @@ public final class ContainerInteractionBehavior extends Behavior {
      * Closes the open container, sending a real {@code ServerboundContainerClosePacket}. Safe to
      * call when nothing is open.
      * <p>
-     * Opening a container server-side also opens its GUI on the client, so this dismisses the
-     * screen the same way pressing escape would; {@code AbstractContainerScreen} then closes the
-     * container for us. If there is no screen (for instance the player already dismissed it), the
-     * container is closed directly instead so the close packet is still sent.
+     * This has to go through {@code LocalPlayer#closeContainer()}, which sends the close packet and
+     * then resets {@code containerMenu} to the inventory menu and dismisses the screen for us.
+     * Dismissing the screen with {@code Minecraft#setScreen(null)} is <i>not</i> equivalent: that
+     * only fires {@code Screen#removed()}, and {@code AbstractContainerScreen#removed()} merely
+     * calls {@code AbstractContainerMenu#removed(Player)}. It neither sends the close packet nor
+     * clears {@code containerMenu}, so the container would stay open on both sides while the GUI
+     * disappeared, and the next box we walked up to would look like it was already open.
      */
     public void closeContainer() {
         if (ctx.player() == null) {
             resetSync();
             return;
         }
-        if (ctx.minecraft().screen instanceof AbstractContainerScreen) {
-            ctx.minecraft().setScreen(null);
-        } else if (openContainer() != null) {
+        if (openContainer() != null) {
             ctx.player().closeContainer();
+        } else if (ctx.minecraft().screen instanceof AbstractContainerScreen) {
+            // the menu is already gone but its screen lingered
+            ctx.minecraft().setScreen(null);
         }
         resetSync();
     }

@@ -73,6 +73,26 @@ block items, only ones absent from the schematic's palette, never anything on
 items are always kept. Schematics over 8M blocks skip the palette scan and treat everything as
 wanted rather than guess.
 
+**Unloading trips (`shulkerDump`) are capacity-aware.** When the inventory fills during a build or
+mine, a dedicated trip is made to unload. Two things make that trip worth the walk:
+
+- *The index picks the box.* Candidates are scored by `IRestockBox#estimatedFreeSlots()` — derived
+  from the recorded contents, assuming everything is packed into as few stacks as it will go —
+  against how many stacks we are actually carrying. A box that can swallow the whole load wins,
+  then the box that takes the most, with distance only as the tie-break. Walking to the nearest box
+  regardless of what the index says is in it is how a trip ends up putting two stacks into an
+  almost-full box. The estimate is a hint, in the same sense as the rest of the index: the live
+  container still decides on arrival, and a deposit re-indexes the box it just filled, so the next
+  trip already knows it has no room.
+- *It unloads everything, not a token amount.* The trip continues to the next box while rubble
+  remains and `shulkerDumpMaxBoxesPerTrip` allows, rather than stopping the moment
+  `shulkerDumpWhenFreeSlotsBelow` is satisfied again — two free slots was enough to end a trip and
+  nowhere near enough to keep working. That setting is now purely the *trigger* for leaving the
+  work. Hitting the box cap is logged rather than passed off as "the depot is full".
+
+What we're carrying is surveyed *before* setting off, using the same junk rule the deposit itself
+uses, so a trip is never started only to discover there was nothing to unload.
+
 ### Storage
 
 Registrations persist per world **and per dimension**, alongside waypoints, at
@@ -92,6 +112,10 @@ failing the file.
 | `restockIndexBeforeBuild` | `true` | Index unknown boxes before starting a build |
 | `restockDumpJunk` | `true` | Deposit unwanted blocks while at a box |
 | `restockDumpWhenFreeSlotsBelow` | `4` | Only dump once free slots drop below this |
+| `shulkerDump` | `false` | Make a dedicated trip to unload when the inventory fills |
+| `shulkerDumpWhenFreeSlotsBelow` | `2` | Free slots that trigger that trip (not what ends it) |
+| `shulkerDumpKeepThrowawayStacks` | `1` | Stacks of scaffolding blocks held back when unloading |
+| `shulkerDumpMaxBoxesPerTrip` | `4` | Boxes one unload trip may open before going back to work |
 
 ### Requires `allowInventory`
 
@@ -101,7 +125,61 @@ them. A one-time warning is logged when this is detected. Set `#set allowInvento
 
 ---
 
-## 2. Upstream bug fixes
+## 2. Sheltering from mobs
+
+Nothing in upstream Baritone reacts to the player being hurt — the only mob awareness is the
+pathfinder's `avoidance` cost multiplier, which is off by default and never looks at damage. A long
+`#sel cleararea` out in the open in survival therefore carries on regardless while a zombie beats on
+you. `shelterOnAttack` (off by default) adds the missing reaction.
+
+**Detecting it.** `ThreatBehavior` watches `hurtTime` rise and attributes each hit through
+`getLastDamageSource()`. Only hostiles count (`Enemy`); fall damage, lava and drowning are things
+running away makes worse, and they are exactly what a naive health-drop check fires on. It takes
+`shelterMinHits` hits inside `shelterThreatMemoryTicks` to trigger, so one arrow on the way past
+isn't enough. This is a *behavior* rather than process state because processes only tick while in
+control, and every hit worth reacting to lands while the builder or miner is driving.
+
+**Reacting to it.** `ShelterProcess` (priority `6.0`, temporary) is offered control by the builder
+and miner through `requestShelter(worthKeeping)`, the same shape as `requestDeposit` — so the
+process that knows what its materials are stays the one that decides, and sheltering only ever
+interrupts Baritone's own work, never someone playing by hand. It then:
+
+1. walks to the nearest registered shulker box, which is where a base tends to be;
+2. unloads into it, by handing off to `RestockProcess` — it sits below us in priority, so returning
+   `DEFER` is all it takes, and none of the container logic is duplicated;
+3. if it's night or thundering, and beds aren't bombs in this dimension, scans for a bed within
+   `shelterBedSearchRadius` (same chunk scanner `#addbox <radius>` uses, both halves normalised to
+   the head), walks to it, and enters it with a genuine forced right-click;
+4. on refusal — "there are monsters nearby" is normal, not exceptional — goes *back* to the box,
+   waits `shelterRetryDelayTicks`, and tries again, up to `shelterMaxSleepAttempts` times;
+5. failing all that, waits at the box until nothing has hit it for `shelterThreatMemoryTicks`, or
+   `shelterMaxWaitTicks` elapses — standing still while something still reaches you is no safer
+   than working.
+
+The refusal is detected by timeout, not by parsing the chat message: servers rewrite it, and it is
+not the only reason entering a bed can silently fail.
+
+`isTemporary()` is `true` for the same reason `RestockProcess`'s is — the interrupted build must
+survive being preempted.
+
+### Settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `shelterOnAttack` | `false` | Master switch. Off = exact previous behaviour |
+| `shelterMinHits` | `2` | Hostile hits within the memory window before retreating |
+| `shelterThreatMemoryTicks` | `200` | How long a hit counts as "under attack" |
+| `shelterUnloadOnRetreat` | `true` | Unload into the box we retreated to |
+| `shelterSleepInBeds` | `true` | Look for a bed once retreated |
+| `shelterBedSearchRadius` | `64` | Blocks; loaded chunks only |
+| `shelterMaxSleepAttempts` | `5` | Bed attempts before settling for waiting |
+| `shelterRetryDelayTicks` | `100` | Wait at the box between bed attempts |
+| `shelterMaxWaitTicks` | `1200` | Cap on waiting it out before going back to work |
+| `shelterRetreatTimeoutTicks` | `100` | Ticks without moving before a walk counts as stuck |
+
+---
+
+## 3. Upstream bug fixes
 
 ### Builder filled in its own path
 
@@ -140,6 +218,50 @@ restriction on `InventoryBehavior` that is set and cleared within a single tick.
 
 Note `backfill` force-disables itself when `allowParkour` is `true`; that's upstream behaviour.
 
+### Water cost exactly as much as dry land
+
+`CalculationContext` works out how far the player's enchantments take them towards dry-land speed in
+water, and initialised that figure to **1.0** — fully efficient — overwriting it only if a depth
+strider enchantment was found. Vanilla registers `water_movement_efficiency` as a `RangedAttribute`
+with default `0` and maximum `1`, so 1.0 is the *enchanted* value. Every player without depth
+strider, which is nearly all of them, was modelled as moving through water at full walking speed:
+
+```java
+waterWalkSpeed = WALK_ONE_IN_WATER_COST * (1 - 1.0) + WALK_ONE_BLOCK_COST * 1.0  // == walking
+```
+
+So the pathfinder saw no difference between swimming and walking, and would cross a pool rather than
+walk around it because the two genuinely cost the same. This is the cause of "it loves slowly
+bouncing through water instead of taking the much faster side route". Fixed by initialising to `0`.
+
+Found by the `water-detour` scenario in §7, and worth noting *how*: the scenario was run at
+`waterCostMultiplier` 2, 8 and 30 in one suite, and all three produced byte-identical paths and the
+same 220 nodes considered. A setting that changes nothing at 30x is not a setting that needs tuning,
+it is a setting whose input is being multiplied by zero. The three-variant sweep is what turned an
+inconclusive failure into a one-line fix.
+
+### Water was priced as if you could walk through it
+
+`WALK_ONE_IN_WATER_COST` is `20 / 2.2` — the speed of walking along the bottom of a pool. That is
+right for a straight line on a flat floor and optimistic about everything else: at the surface the
+player bobs, entering and leaving costs momentum, and none of it can be sprinted. At roughly twice
+the cost of walking, a pool reads as barely worse than a detour of the same length, so Baritone
+swims across things it could have walked around faster. Observed as it "slowly bouncing through
+water instead of taking the much faster side route".
+
+New `waterCostMultiplier` (default `2.0`) scales it. At the default a block of water costs about
+four blocks of walking, so it will go around anything it can get around in less than four times the
+distance. `1.0` is exactly upstream.
+
+The multiplier applies only to the portion of the cost actually spent swimming — the interpolation
+towards walking speed that depth strider provides is left alone, because a player who really does
+move at walking speed through water is not bobbing at the surface and should not be charged as
+though they were. Nonsense values (zero, negative, non-finite) fall back to `1.0` rather than being
+believed: a negative edge cost is not a cheap path, it is a search that does not terminate.
+
+Covered by `ActionCostsWaterTest`, and by the `water-detour` scenario in §7, which is sized so that
+upstream's costs pick the swim and the new default picks the detour.
+
 ### Builder had no loop detection
 
 The builder reassembles its goal set every tick and returns
@@ -156,7 +278,7 @@ This detects goal *churn*. A stable goal that simply can't be reached won't trip
 
 ---
 
-## 3. New/changed files
+## 4. New/changed files
 
 **New:**
 
@@ -164,16 +286,19 @@ This detects goal *churn*. A stable goal that simply can't be reached won't trip
 src/api/java/baritone/api/cache/IRestockBox.java
 src/api/java/baritone/api/cache/IRestockBoxCollection.java
 src/api/java/baritone/api/process/IRestockProcess.java
+src/api/java/baritone/api/process/IShelterProcess.java
 src/main/java/baritone/behavior/ContainerInteractionBehavior.java
+src/main/java/baritone/behavior/ThreatBehavior.java
 src/main/java/baritone/cache/RestockBox.java
 src/main/java/baritone/cache/RestockBoxCollection.java
 src/main/java/baritone/command/defaults/RestockBoxCommand.java
 src/main/java/baritone/process/RestockProcess.java
+src/main/java/baritone/process/ShelterProcess.java
 ```
 
 **Modified:** `Settings.java`, `IBaritone.java`, `IWorldData.java`, `IBuilderProcess.java`,
 `Baritone.java`, `WorldData.java`, `DefaultCommands.java`, `InventoryBehavior.java`,
-`BackfillProcess.java`, `BuilderProcess.java`.
+`BackfillProcess.java`, `BuilderProcess.java`, `MineProcess.java`.
 
 `RestockProcess` must be registered **before** `BuilderProcess` in `Baritone.java`:
 `PathingControlManager#registerProcess` calls `onLostControl()` immediately, and
@@ -181,11 +306,12 @@ src/main/java/baritone/process/RestockProcess.java
 but the ordering comment should stay.
 
 `RestockProcess.isTemporary()` **must** remain `true`. `BuilderProcess#onLostControl` nulls the
-schematic, so a non-temporary process taking control would destroy the in-progress build.
+schematic, so a non-temporary process taking control would destroy the in-progress build. The same
+applies to `ShelterProcess`, which outranks it.
 
 ---
 
-## 4. Building
+## 5. Building
 
 ```
 ./gradlew build
@@ -200,7 +326,7 @@ session; replacing the file mid-run causes `ZipException: invalid LOC header` an
 
 ---
 
-## 5. Testing status
+## 6. Testing status
 
 The restocking path has been exercised in game on a real server: registering boxes, indexing,
 pathing, opening, transferring, stale-index fallback to another box, and resuming the build all
@@ -209,3 +335,101 @@ structure.
 
 Less exercised: junk disposal, `#indexboxes all`, the reroute clamp, disconnect mid-transfer, and
 the full-inventory path. There are no automated tests — Baritone's suite doesn't cover processes.
+
+**Not yet exercised in game at all:** the capacity-aware unload trip (§1) and everything in §2.
+Both compile and both are off by default, but neither has been run against a real server. Things to
+watch for on first use:
+
+- whether `estimatedFreeSlots()` is pessimistic enough in practice — a box holding many partial
+  stacks of the same item reads as emptier than it is, which would send us to a box that then
+  refuses the load. The `freed <= 0` check catches that and moves on, but it costs a walk;
+- whether `isBrightOutside()`/`isThundering()` matches the server's own view of when sleeping is
+  allowed. A mismatch only costs a wasted walk to a bed, since a refusal is detected by timeout
+  regardless;
+- whether `hasCeiling()`/`hasFixedTime()` is an adequate stand-in for the `bedWorks` flag that no
+  longer exists on `DimensionType`. Getting this wrong means a bed explodes, so it errs towards not
+  trying;
+- right-click hygiene after a refused bed — the same failure mode as commit `85bc8236`.
+
+---
+
+## 7. In-game test harness
+
+`#testing` runs scenarios against a live world and writes a report. It exists because the things
+this fork changes — restocking, sheltering, builder/backfill arbitration — are exactly the things
+the JUnit suite cannot reach: they only mean anything with a server, a world and a process holding
+control for several thousand ticks.
+
+### Running it
+
+```
+#testing list                  list the scenarios
+#testing all                   run all of them, in order
+#testing <name> [<name> ...]   run specific ones
+#testing cancel                stop
+#testing autorun               run the whole suite on next world join, then quit the game
+```
+
+Singleplayer with cheats only, and it will rewrite terrain, clear your inventory and change your
+gamemode. **Use a world you do not care about.** It refuses to start on a server rather than
+finding out the hard way which of its commands the server allows.
+
+Reports go to `<instance>/minecraft/baritone/testing/`: `report-<timestamp>.md` to read,
+`report-<timestamp>.json` to parse, and `latest.md`/`latest.json` overwritten each run so a reader
+doesn't have to guess a filename.
+
+`#testing autorun` writes a flag file that the next world join picks up. The run deletes the flag
+*before* starting — a crash mid-suite must not turn into a boot loop — then saves, leaves the world
+and quits. Combined with `prismlauncher --launch <instance> --world <world>`, that makes an
+unattended build → run → read-the-report loop possible.
+
+### How a scenario works
+
+Four phases, all tick-driven, because there is no thread to block on: **stage** the arena in
+creative, **arm** by switching to survival, **run** the real process API, **assert** against world
+state. Each scenario gets its own arena 512 blocks from the last, so nothing one leaves behind can
+reach the next.
+
+Two deliberate choices:
+
+- **Staging goes through vanilla commands**, not through the integrated server's level object. The
+  client can reach that object in singleplayer and writing to it would be faster, but it would mean
+  arenas exist on a path no player could take — the one thing the container code in §1 is careful
+  never to do. Commands also keep the harness honest about chunk loading: `/fill` refuses an
+  unloaded chunk, which is why staging waits for the arena's chunks to reach the client first.
+- **Verdicts come from the world, not from chat.** Baritone logs `"Done building"` when it has
+  nothing left it *can* do, which includes having given up — the exact state a materials bug leaves
+  it in. Scenarios count placed blocks, read the inventory and check the player's position instead.
+
+`TestingBehavior` is a behavior, not a process, for the reason `ThreatBehavior` is one only more
+so: it supervises processes. Registering it with `ProcessScheduler` would put it in competition
+with the code it is observing, and the first scenario to hand control to the builder would be the
+last tick the harness ran.
+
+### Current scenarios
+
+| Scenario | What it proves |
+|---|---|
+| `pathing-course` | Walls, a trench and water to a raised platform, with `allowBreak`/`allowPlace` off so it must actually navigate rather than mine through |
+| `water-detour` | An 11-block pool with a dry way around it. Sized so upstream's costs pick the swim and `waterCostMultiplier`'s default picks the detour, so it holds that default honest |
+| `build-schematic` | A 5x5x3 ring with materials in hand. The control case: if this fails, a restock failure afterwards means nothing |
+| `restock-from-box` | The same ring starting 16 blocks short, with a stocked box registered nearby. Finishing is not sufficient — the restock process must also have taken control, or the material came from somewhere unintended |
+
+### Known-fragile bits
+
+- **The shulker box `/setblock` in `restock-from-box`** is the most version-sensitive line in the
+  harness. Block entity item NBT has changed format before. If that scenario reports the box as
+  missing, check the command against the current format before suspecting Baritone.
+- **First run, 2026-07-31.** The loop worked unattended end to end — staged, ran, judged, reported,
+  quit. `build-schematic` and `restock-from-box` passed; the latter is the first repeatable
+  confirmation that restocking works, having previously only been checked by hand (§6).
+  `pathing-course` failed on a fault in its own geometry, not in Baritone: the staircase's top step
+  sat directly under the goal platform, burying it and leaving a two-block wall that cannot be
+  climbed with placing disabled. An unreachable goal reads in a report as Baritone giving up, which
+  is worth remembering when writing the next scenario.
+- **`restock-from-box`'s first assertion was too weak to mean what it claimed.** It required only
+  that the restock process take control at some point, which the pre-build indexing trip satisfies
+  whether or not the builder ever runs short — it passed at `t=0s`. It now requires a trip taken
+  after at least one block is placed.
+- Scenario timeouts are generous on purpose. A budget tight enough to catch a slow run is tight
+  enough to fire on a chunk load, and a suite that cries wolf gets ignored.

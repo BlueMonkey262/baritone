@@ -45,6 +45,26 @@ public interface ActionCosts {
      */
     double COST_INF = 1000000;
 
+    /**
+     * The cost of moving one block horizontally through water.
+     *
+     * @param waterSpeedMultiplier How far towards dry-land speed the player's enchantments take
+     *                             them: 0 for no depth strider, 1 for enough to move normally
+     * @param penalty              {@code Settings#waterCostMultiplier}
+     * @return The cost in ticks
+     */
+    static double waterWalkCost(double waterSpeedMultiplier, double penalty) {
+        // A multiplier of zero or less would make water free or, worse, negative -- and a negative
+        // edge cost is not something A* recovers from, it is something it loops on. Anything that
+        // is not a usable positive number is treated as "no opinion" rather than believed.
+        double usable = Double.isFinite(penalty) && penalty > 0 ? penalty : 1.0;
+        // The penalty applies only to the part of the journey actually spent swimming. A player
+        // whose enchantments let them walk through water at walking speed is not bobbing at the
+        // surface, and should not be charged as though they were.
+        return WALK_ONE_IN_WATER_COST * usable * (1 - waterSpeedMultiplier)
+                + WALK_ONE_BLOCK_COST * waterSpeedMultiplier;
+    }
+
     double[] FALL_N_BLOCKS_COST = generateFallNBlocksCost();
 
     double FALL_1_25_BLOCKS_COST = distanceToTicks(1.25);

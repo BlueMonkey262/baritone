@@ -69,7 +69,34 @@ public interface IRestockProcess extends IBaritoneProcess {
      * @param worthKeeping Whether an inventory stack belongs to the work being done
      * @return {@code true} if a deposit run was started
      */
-    boolean requestDeposit(Predicate<ItemStack> worthKeeping);
+    default boolean requestDeposit(Predicate<ItemStack> worthKeeping) {
+        return requestDeposit(worthKeeping, true);
+    }
+
+    /**
+     * As {@link #requestDeposit(Predicate)}, but able to decline without giving up.
+     * <p>
+     * The {@link #isDepositImpossible} latch exists so that a process asking on every tick, because
+     * it is full and cannot continue, stops asking once the answer is hopeless. That reasoning only
+     * holds for a caller that is actually out of room: "nothing worth unloading right now" means
+     * something quite different when there are still twenty free slots, and latching on it would
+     * stop the build unloading for the rest of the job.
+     *
+     * @param worthKeeping Whether an inventory stack belongs to the work being done
+     * @param latchIfHopeless {@code false} for a speculative ask, which should leave
+     *                        {@link #isDepositImpossible} alone when it declines
+     * @return {@code true} if a deposit run was started
+     */
+    default boolean requestDeposit(Predicate<ItemStack> worthKeeping, boolean latchIfHopeless) {
+        /*
+         * This overload was added after the original one-argument API. Declining is the only safe
+         * compatibility behavior for an older implementation: delegating back to the one-argument
+         * default would recurse, while latching or starting work on its behalf would invent state
+         * that implementation does not have. Implementations that understand the latch override
+         * this method; the built-in RestockProcess does.
+         */
+        return false;
+    }
 
     /**
      * Whether we have already concluded that there is nowhere to unload to.

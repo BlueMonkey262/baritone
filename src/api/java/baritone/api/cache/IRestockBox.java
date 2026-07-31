@@ -35,6 +35,11 @@ import java.util.Map;
 public interface IRestockBox {
 
     /**
+     * How many item slots a shulker box has.
+     */
+    int SHULKER_SLOTS = 27;
+
+    /**
      * @return The position of the shulker box
      */
     BetterBlockPos getLocation();
@@ -67,6 +72,45 @@ public interface IRestockBox {
      */
     default int countOf(Item item) {
         return getContents().getOrDefault(item, 0);
+    }
+
+    /**
+     * Roughly how many of the box's slots were in use when we last looked, assuming every item is
+     * packed into as few stacks as it will go.
+     * <p>
+     * This is an estimate and not a measurement. {@link #getContents()} records a total count per
+     * item with no slot layout, so a box holding the same item spread across several partial stacks
+     * reads as using fewer slots than it really does. In the same way this cannot see the headroom
+     * left in a partial stack. It is a <i>hint</i> for choosing which box to walk to, in exactly the
+     * sense the class javadoc describes; the live container decides what actually happens on
+     * arrival.
+     *
+     * @return An estimate between {@code 0} and {@link #SHULKER_SLOTS}
+     */
+    default int estimatedUsedSlots() {
+        long used = 0;
+        for (Map.Entry<Item, Integer> entry : getContents().entrySet()) {
+            int count = entry.getValue();
+            if (count <= 0) {
+                continue;
+            }
+            int maxStack = Math.max(1, entry.getKey().getDefaultMaxStackSize());
+            used += (count + (long) maxStack - 1L) / maxStack;
+            if (used >= SHULKER_SLOTS) {
+                return SHULKER_SLOTS;
+            }
+        }
+        return (int) used;
+    }
+
+    /**
+     * How many free slots this box is believed to have, i.e. roughly how many whole stacks it could
+     * still accept. Never observed, always derived -- see {@link #estimatedUsedSlots()}.
+     *
+     * @return An estimate between {@code 0} and {@link #SHULKER_SLOTS}
+     */
+    default int estimatedFreeSlots() {
+        return SHULKER_SLOTS - estimatedUsedSlots();
     }
 
     /**

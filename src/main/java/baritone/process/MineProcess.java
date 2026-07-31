@@ -22,6 +22,7 @@ import baritone.api.BaritoneAPI;
 import baritone.api.pathing.goals.*;
 import baritone.api.process.IMineProcess;
 import baritone.api.process.IRestockProcess;
+import baritone.api.process.IShelterProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
 import baritone.api.utils.*;
@@ -84,6 +85,13 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
                 cancel();
                 return null;
             }
+        }
+        // Getting away from something that's killing us comes before anything else, including
+        // running out of room. Cheap to ask: it declines immediately unless we're actually being hit.
+        IShelterProcess shelter = baritone.getShelterProcess();
+        if (shelter != null && shelter.requestShelter(this::inventoryWants)) {
+            // the shelter process outranks us and takes control next tick
+            return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
         }
         // Once there is no room for another drop, carry on only after making space in a registered
         // box. The keep rule recognises the drops from the requested blocks as well as the blocks
@@ -185,6 +193,17 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     @Override
     public String displayName0() {
         return "Mine " + filter;
+    }
+
+    /**
+     * The ore locations are exactly the blocks this process asked to be broken; everything else it
+     * breaks is scenery in the way. The list is re-pruned at the start of every tick, and a block
+     * still standing at that point is still in it, so it is accurate by the time the break lands
+     * later in the same tick.
+     */
+    @Override
+    public boolean wantsDropsFrom(BlockPos pos) {
+        return knownOreLocations != null && knownOreLocations.contains(pos);
     }
 
     private PathingCommand updateGoal() {

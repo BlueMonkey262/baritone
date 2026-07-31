@@ -97,6 +97,17 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         CLOSING
     }
 
+    /**
+     * How long to wait after the last shift-click before deciding what actually moved.
+     * <p>
+     * The server does not acknowledge a container click it agrees with. It records the slot values
+     * the client predicted, and {@code broadcastChanges} then sends a slot packet only where the
+     * real state differs. So silence means success, and waiting for a packet before sending the
+     * next click deadlocks until the timeout. All this window has to cover is the round trip in
+     * which a <i>rejected</i> click gets rolled back.
+     */
+    private static final int TRANSFER_SETTLE_TICKS = 10;
+
     private State state = State.IDLE;
 
     /**
@@ -179,12 +190,26 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     private int freedThisTrip;
     private int freeSlotsAtBox;
     /**
+     * Boxes opened so far on this unload trip, bounded by {@code shulkerDumpMaxBoxesPerTrip} so a
+     * large depot can't turn one trip into a tour of every box in it.
+     */
+    private int boxesVisitedThisTrip;
+    /**
      * How many stacks of each throwaway item we've already decided to hold back at this box.
      */
     private final Map<Item, Integer> keptThrowaway = new HashMap<>();
 
     private int ticksInState;
-    private int lastContentRevision;
+    /**
+     * True after a targeted use-on packet has been issued. A foreign menu that predates that packet
+     * is never evidence that {@link #targetBox} opened.
+     */
+    private boolean attemptedTargetOpen;
+    /**
+     * The menu id first observed after the targeted open attempt. Every later sync and transfer
+     * must remain in this exact session.
+     */
+    private int openedContainerId = -1;
     private int playerCountBefore;
     private int transferSlot;
     private int depositSlot = -1;
@@ -271,43 +296,105 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     @Override
-    public boolean requestDeposit(Predicate<ItemStack> worthKeeping) {
+    public boolean requestDeposit(Predicate<ItemStack> worthKeeping, boolean latchIfHopeless) {
+        return requestDeposit(worthKeeping, latchIfHopeless, null);
+    }
+
+    /**
+     * Starts a deposit trip, trying {@code preferredTarget} first when it is a viable registered
+     * box. Shelter uses this after it has already retreated to a particular rally box: independently
+     * re-sorting by capacity there could send the player straight back out into danger.
+     */
+    boolean requestDeposit(Predicate<ItemStack> worthKeeping, boolean latchIfHopeless, BetterBlockPos preferredTarget) {
         Objects.requireNonNull(worthKeeping);
-        if (!Baritone.settings().shulkerDump.value || isActive() || this.depositImpossible) {
+        // Deliberately not gated on shulkerDump. That setting governs whether running out of room is
+        // worth a trip, which is the caller's decision and one both the builder and the miner
+        // already make in their own inventoryIsFull(). Checking it again here would silently
+        // disable the shelter process's unload, which is not the same thing at all.
+        if (isActive() || this.depositImpossible) {
             return false;
         }
         IRestockBoxCollection collection = boxes();
         if (collection == null) {
             return false;
         }
+        // Work out what we'd actually put in a box before walking anywhere. If the answer is
+        // nothing, the trip is pointless, and finding that out on arrival costs a round walk.
+        int junkStacks = junkStacksCarried(worthKeeping);
+        if (junkStacks == 0) {
+            if (latchIfHopeless) {
+                this.depositImpossible = true;
+                logDirect("Inventory is full, but everything I'm carrying is worth keeping, so there's nothing to unload.");
+            }
+            return false;
+        }
         BetterBlockPos feet = ctx.playerFeet();
         double maxDistSq = Math.pow(Baritone.settings().restockMaxDistance.value, 2);
-        List<BetterBlockPos> queue = new ArrayList<>();
+        List<IRestockBox> viable = new ArrayList<>();
         for (IRestockBox box : collection.getAllBoxes()) {
-            if (box.isMissing() || this.fullThisBuild.contains(box.getLocation())) {
+            if (box.isMissing()
+                    || this.failedThisBuild.contains(box.getLocation())
+                    || this.fullThisBuild.contains(box.getLocation())) {
                 continue;
             }
             if (box.getLocation().distSqr(feet) > maxDistSq) {
                 continue;
             }
-            queue.add(box.getLocation());
+            viable.add(box);
         }
-        if (queue.isEmpty()) {
-            // no point being asked again every tick for the rest of this piece of work
-            this.depositImpossible = true;
-            logDirect("Inventory is full, but there's no registered box left to unload into. Use #addbox to register one, or #set shulkerDump false.");
+        if (viable.isEmpty()) {
+            if (latchIfHopeless) {
+                // no point being asked again every tick for the rest of this piece of work
+                this.depositImpossible = true;
+                logDirect("Inventory is full, but there's no registered box left to unload into. Use #addbox to register one, or #set shulkerDump false.");
+            }
             return false;
         }
-        // nearest first: the whole point is to get back to work quickly
-        queue.sort(Comparator.comparingDouble(pos -> pos.distSqr(feet)));
+        // Fit first, distance second. Walking to the nearest box regardless of what the index says
+        // is in it is how a trip ends up dumping two stacks into an almost-full box and coming
+        // straight back; a box that can swallow the whole load is worth a few more blocks of walk.
+        Comparator<IRestockBox> capacityOrder = Comparator
+                // one that takes everything beats one that takes most of it, however close
+                .comparing((IRestockBox box) -> roomFor(box, junkStacks) < junkStacks)
+                .thenComparing(Comparator.comparingInt((IRestockBox box) -> roomFor(box, junkStacks)).reversed())
+                // a box we've actually looked inside beats one we're merely hoping about
+                .thenComparing(IRestockBox::isUnindexed)
+                .thenComparingDouble(box -> box.getLocation().distSqr(feet));
+        if (preferredTarget == null) {
+            viable.sort(capacityOrder);
+        } else {
+            viable.sort(Comparator
+                    .comparing((IRestockBox box) -> !preferredTarget.equals(box.getLocation()))
+                    .thenComparing(capacityOrder));
+        }
+        List<BetterBlockPos> queue = new ArrayList<>();
+        for (IRestockBox box : viable) {
+            queue.add(box.getLocation());
+        }
         this.worthKeeping = worthKeeping;
         this.depositOnly = true;
         this.freedThisTrip = 0;
+        this.boxesVisitedThisTrip = 0;
         this.candidates = queue;
         this.targetBox = this.candidates.remove(0);
         startPathing();
-        logDirect("Inventory is full; unloading into the box at " + this.targetBox);
+        logDirect(String.format("Inventory is full; unloading %d stack(s) into the box at %s", junkStacks, this.targetBox));
         return true;
+    }
+
+    /**
+     * How many of the stacks we're carrying the index thinks this box could take, capped at the
+     * number we actually have.
+     * <p>
+     * A box that has never been opened is assumed empty rather than skipped, matching how
+     * {@link #findCandidates} treats one: an unindexed box is a real possibility, just a less
+     * trustworthy one, and the sort demotes it below an equally-capable indexed box.
+     */
+    private static int roomFor(IRestockBox box, int junkStacks) {
+        if (box.isUnindexed()) {
+            return junkStacks;
+        }
+        return Math.min(box.estimatedFreeSlots(), junkStacks);
     }
 
     @Override
@@ -389,7 +476,11 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             this.worthKeeping = worthKeeping;
             // keep clearing slots a bit past the immediate shortfall so we don't have to walk
             // straight back for the next few blocks
-            this.fetchTarget = entry.getValue() + (Baritone.settings().restockExtraStacks.value * 64);
+            this.fetchTarget = fetchTarget(
+                    entry.getValue(),
+                    Baritone.settings().restockExtraStacks.value,
+                    item.getDefaultMaxStackSize()
+            );
             this.candidates = found;
             this.targetBox = this.candidates.remove(0);
             startPathing();
@@ -442,6 +533,16 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         return result;
     }
 
+    /**
+     * Converts the requested surplus stacks to items without assuming every item stacks to 64 or
+     * overflowing when a large configured surplus is added to the immediate shortfall.
+     */
+    static int fetchTarget(int missing, int extraStacks, int maxStackSize) {
+        long target = Math.max(0L, missing)
+                + (long) Math.max(0, extraStacks) * Math.max(1, maxStackSize);
+        return (int) Math.min(Integer.MAX_VALUE, target);
+    }
+
     @Override
     public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
         if (this.state == State.IDLE) {
@@ -477,6 +578,20 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     }
 
     private PathingCommand tickPathing() {
+        ContainerInteractionBehavior behavior = behavior();
+        if (behavior.openContainer() != null) {
+            // A menu that was already open cannot belong to the use-on interaction we are about to
+            // send. Close it before aiming at the target, even if it happens to be another shulker.
+            // Deliberately no ticksInState reset here: closing normally takes a single tick, so if
+            // one keeps reappearing (the player reopening it, say) the trip has to give up rather
+            // than pause forever.
+            if (this.ticksInState > Baritone.settings().restockOpenTimeoutTicks.value) {
+                logDirect("Something else keeps a container open; giving up on the box at " + this.targetBox);
+                return failCurrentBox();
+            }
+            behavior.closeContainer();
+            return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+        }
         notePathingProgress();
         if (this.ticksInState > Baritone.settings().restockOpenTimeoutTicks.value) {
             logDirect("Made no progress walking to the box at " + this.targetBox + "; trying the next one");
@@ -501,7 +616,9 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (reachable.isPresent()) {
             this.state = State.OPENING;
             this.ticksInState = 0;
-            baritone.getContainerInteractionBehavior().resetSync();
+            this.attemptedTargetOpen = false;
+            this.openedContainerId = -1;
+            behavior.resetSync();
             return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
         }
         return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
@@ -530,8 +647,21 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     private PathingCommand tickOpening() {
         clearOpeningInput();
         ContainerInteractionBehavior behavior = behavior();
-        if (behavior.openContainer() != null) {
+        AbstractContainerMenu menu = behavior.openContainer();
+        if (menu != null) {
+            if (!this.attemptedTargetOpen) {
+                // Something opened without our targeted click. Its contents must never be indexed,
+                // fetched, or deposited under targetBox. Same reasoning as tickPathing: let the
+                // timeout run so a menu we can't get rid of ends the box rather than the trip.
+                if (this.ticksInState > Baritone.settings().restockOpenTimeoutTicks.value) {
+                    logDirect("Something else keeps a container open; giving up on the box at " + this.targetBox);
+                    return failCurrentBox();
+                }
+                behavior.closeContainer();
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+            }
             clearOpeningInput();
+            this.openedContainerId = menu.containerId;
             this.state = State.AWAITING_SYNC;
             this.ticksInState = 0;
             return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
@@ -551,6 +681,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         }
         baritone.getLookBehavior().updateTarget(reachable.get(), true);
         if (this.targetBox.equals(ctx.getSelectedBlock().orElse(null))) {
+            this.attemptedTargetOpen = true;
             baritone.getInputOverrideHandler().setInputForceState(Input.CLICK_RIGHT, true);
         }
         return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
@@ -558,13 +689,14 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
 
     private PathingCommand tickAwaitingSync() {
         ContainerInteractionBehavior behavior = behavior();
-        if (behavior.openContainer() == null) {
+        AbstractContainerMenu menu = behavior.openContainer();
+        if (menu == null || menu.containerId != this.openedContainerId) {
             // the container closed under us before we could read it
-            logDirect("Box at " + this.targetBox + " closed before its contents arrived");
+            logDirect("The container session for the box at " + this.targetBox
+                    + " changed before its contents arrived");
             return failCurrentBox();
         }
         if (behavior.isContainerReadable()) {
-            AbstractContainerMenu menu = behavior.openContainer();
             Map<Item, Integer> contents = behavior.readContents(menu);
             IRestockBoxCollection collection = boxes();
             if (collection != null) {
@@ -579,7 +711,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             }
             if (this.depositOnly) {
                 // nothing to fetch; the box is open, so go straight to filling it
-                this.lastContentRevision = behavior.getContentRevision();
+                this.boxesVisitedThisTrip++;
                 return afterContainerWork();
             }
             if (contents.getOrDefault(this.wantedItem, 0) <= 0) {
@@ -590,7 +722,6 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
             this.playerCountBefore = countInPlayerInventory(this.wantedItem);
-            this.lastContentRevision = behavior.getContentRevision();
             this.transferSlot = 0;
             this.capacityRetryAttempted = false;
             this.state = State.TRANSFERRING;
@@ -599,9 +730,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         }
         if (this.ticksInState > Baritone.settings().restockOpenTimeoutTicks.value) {
             logDirect("Timed out waiting for the contents of the box at " + this.targetBox);
-            this.failedThisBuild.add(this.targetBox);
-            this.state = State.CLOSING;
-            this.ticksInState = 0;
+            return failCurrentBox();
         }
         return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
     }
@@ -609,17 +738,18 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     /**
      * Shift-clicks matching stacks out of the box, one slot per tick.
      * <p>
-     * One click per tick rather than a burst: container clicks are client-predicted and confirmed
-     * by the server afterwards, so firing many at once risks the server rejecting the tail of them
-     * against a stale menu state. A shulker box is 27 slots, so even the worst case is under two
-     * seconds -- still far faster than a human, which is all that was asked for.
+     * {@code handleContainerInput} applies each click to the local menu before sending it, so a
+     * click never leaves the menu stale and the next slot can be judged immediately. What the click
+     * count cannot tell us is what the <i>server</i> did with it, so the decision at the end is made
+     * from the inventory after {@link #TRANSFER_SETTLE_TICKS} rather than from the clicks sent.
      */
     private PathingCommand tickTransferring(boolean isSafeToCancel) {
         ContainerInteractionBehavior behavior = behavior();
         AbstractContainerMenu menu = behavior.openContainer();
-        if (menu == null) {
+        if (menu == null || menu.containerId != this.openedContainerId) {
             // container vanished mid-transfer (server closed it, or we got disconnected)
-            logDirect("Box at " + this.targetBox + " closed mid-transfer");
+            logDirect("The container session for the box at " + this.targetBox
+                    + " changed mid-transfer");
             return failCurrentBox();
         }
 
@@ -632,22 +762,25 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
 
         int containerSlots = behavior.containerSlotCount(menu);
         while (this.transferSlot < containerSlots) {
-            ItemStack stack = menu.slots.get(this.transferSlot).getItem();
+            int slot = this.transferSlot++;
+            ItemStack stack = menu.slots.get(slot).getItem();
             if (!stack.isEmpty() && stack.getItem() == this.wantedItem) {
-                behavior.quickMove(menu, this.transferSlot);
-                this.transferSlot++;
+                behavior.quickMove(menu, slot);
+                this.ticksInState = 0;
+                // One click per tick. The click is applied to the local menu synchronously, so
+                // the next slot is judged against up-to-date state on the following tick.
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
-            this.transferSlot++;
         }
 
-        // Ran out of slots to click. Give the server a moment to answer the last click before
-        // judging whether anything actually arrived -- the client's own optimistic prediction is
-        // not proof, and a rejected move gets rolled back a tick or two later.
-        if (this.ticksInState < Baritone.settings().restockOpenTimeoutTicks.value
-                && behavior.getContentRevision() == this.lastContentRevision) {
+        // Every matching slot has been clicked. There is nothing to wait for in the success case:
+        // the server absorbs our predicted slot values and only answers a container click when it
+        // disagrees with them. So settle briefly to let a correction land, then judge by what is
+        // actually in the inventory rather than by how many clicks we sent.
+        if (this.ticksInState < TRANSFER_SETTLE_TICKS) {
             return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
         }
+        taken = countInPlayerInventory(this.wantedItem) - this.playerCountBefore;
 
         if (taken <= 0) {
             // Nothing arrived. QUICK_MOVE silently does nothing when there is nowhere to put the
@@ -732,7 +865,23 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      * player's half of the menu in order -- which is exactly what {@link #tickDepositing} does.
      */
     private boolean isJunk(ItemStack stack) {
-        if (stack.isEmpty()
+        return isJunk(stack, this.worthKeeping, this.depositOnly, this.keptThrowaway);
+    }
+
+    /**
+     * The rule itself, with every input passed in rather than read from the trip's fields.
+     * <p>
+     * Split out so that a survey of what we're carrying and the deposit that follows it can be
+     * guaranteed to agree. They must: the trip only ends when the survey says no junk is left, so a
+     * survey that counts a stack the deposit pass would refuse to move is an infinite loop.
+     *
+     * @param keptThrowaway The throwaway budget spent so far by <i>this</i> pass. Each caller owns
+     *                      its own map; sharing one between a survey and a deposit would double-count.
+     */
+    private static boolean isJunk(ItemStack stack, Predicate<ItemStack> worthKeeping,
+                                  boolean depositOnly, Map<Item, Integer> keptThrowaway) {
+        if (worthKeeping == null
+                || stack.isEmpty()
                 || !(stack.getItem() instanceof BlockItem)
                 || stack.get(DataComponents.FOOD) != null
                 || stack.get(DataComponents.EQUIPPABLE) != null
@@ -745,35 +894,57 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             return false;
         }
         if (Baritone.settings().acceptableThrowawayItems.value.contains(stack.getItem())) {
-            if (!this.depositOnly) {
+            if (!depositOnly) {
                 return false; // needed for pillaring and bridging
             }
-            int kept = this.keptThrowaway.getOrDefault(stack.getItem(), 0);
+            int kept = keptThrowaway.getOrDefault(stack.getItem(), 0);
             if (kept < Baritone.settings().shulkerDumpKeepThrowawayStacks.value) {
-                this.keptThrowaway.put(stack.getItem(), kept + 1);
+                keptThrowaway.put(stack.getItem(), kept + 1);
                 return false;
             }
             // everything past the stacks we held back is rubble like any other
         }
-        return !this.worthKeeping.test(stack);
+        return !worthKeeping.test(stack);
     }
 
     /**
-     * Shift-clicks junk out of the player's half of the open menu, one slot per tick, same as the
-     * take path. If the box is full the clicks simply do nothing and we move on.
+     * How many stacks in the player's inventory a deposit trip would be willing to put in a box.
+     * <p>
+     * Uses the same rule as {@link #tickDepositing} with a fresh throwaway budget, so the answer
+     * matches what a deposit would actually move. The iteration order differs from the menu's, which
+     * does not matter: the budget holds back a fixed number of stacks per throwaway item, so the
+     * total is the same whichever stacks happen to be the ones kept. Always evaluated with
+     * deposit-trip rules, because that is the only thing this number is used to decide.
+     */
+    private int junkStacksCarried(Predicate<ItemStack> worthKeeping) {
+        if (ctx.player() == null || worthKeeping == null) {
+            return 0;
+        }
+        Map<Item, Integer> scratch = new HashMap<>();
+        int junk = 0;
+        for (ItemStack stack : ctx.player().getInventory().getNonEquipmentItems()) {
+            if (isJunk(stack, worthKeeping, true, scratch)) {
+                junk++;
+            }
+        }
+        return junk;
+    }
+
+    /**
+     * Shift-clicks junk out of the player's half of the open menu, one slot per tick. If the box is
+     * full the click is accepted and moves nothing, which the local slot count detects, and we
+     * continue to the next slot.
      */
     private PathingCommand tickDepositing() {
         ContainerInteractionBehavior behavior = behavior();
         AbstractContainerMenu menu = behavior.openContainer();
-        if (menu == null) {
-            if (this.depositOnly) {
-                // The box shut on us before we'd finished. Treat it as a failed box rather than
-                // just ending the trip: we're still full, so the interrupted process would ask
-                // again straight away, and without marking this one we'd walk back to it forever.
-                logDirect("Box at " + this.targetBox + " closed while I was unloading");
-                return failCurrentBox();
-            }
-            return finishTrip();
+        if (menu == null || menu.containerId != this.openedContainerId) {
+            // The box shut on us before we'd finished. Treat it as a failed box rather than trusting
+            // or writing through a replacement menu; for deposit-only trips this also prevents an
+            // immediate walk back to the same unusable box.
+            logDirect("The container session for the box at " + this.targetBox
+                    + " changed while I was unloading");
+            return failCurrentBox();
         }
         int containerSlots = behavior.containerSlotCount(menu);
         if (this.depositSlot < containerSlots) {
@@ -781,11 +952,25 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         }
         while (this.depositSlot < menu.slots.size()) {
             int slot = this.depositSlot++;
-            if (isJunk(menu.slots.get(slot).getItem())) {
+            ItemStack stack = menu.slots.get(slot).getItem();
+            if (isJunk(stack)) {
+                int countBefore = stack.getCount();
                 behavior.quickMove(menu, slot);
-                this.deposited++;
+                // The click is applied to the local menu synchronously, so the source slot itself
+                // says whether the stack went anywhere. Shift-clicking into a full box is accepted
+                // and moves nothing, which is exactly the case this has to distinguish.
+                if (menu.slots.get(slot).getItem().getCount() < countBefore) {
+                    this.deposited++;
+                }
+                this.ticksInState = 0;
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
+        }
+        // Settle before judging, for the same reason as the transfer loop: a click the server
+        // rejects is rolled back a tick or two later, and a click it accepts is answered with
+        // silence.
+        if (this.ticksInState < TRANSFER_SETTLE_TICKS) {
+            return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
         }
         // Clicks are not proof: shift-clicking into a full box succeeds locally and moves nothing.
         // What actually happened is the change in free slots.
@@ -814,7 +999,6 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             }
             this.retryTransferAfterDeposit = false;
             this.playerCountBefore = countInPlayerInventory(this.wantedItem);
-            this.lastContentRevision = behavior.getContentRevision();
             this.transferSlot = 0;
             this.state = State.TRANSFERRING;
             this.ticksInState = 0;
@@ -837,12 +1021,22 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             return finishTrip();
         }
         if (this.depositOnly) {
-            // one box is often not enough room; while we're still short of space and there are
-            // boxes left, keep going rather than walking back to the work and straight out again
-            if (freeSlots() < Baritone.settings().shulkerDumpWhenFreeSlotsBelow.value && !this.candidates.isEmpty()) {
-                this.targetBox = this.candidates.remove(0);
-                startPathing();
-                return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+            // Keep going while there is still rubble to put down and somewhere to put it. Stopping
+            // at a free-slot count is what made these trips useless: two slots is enough to satisfy
+            // the threshold and nowhere near enough to get back to work for any length of time.
+            // Note the box we just filled has had its index refreshed by the deposit, so the next
+            // trip's capacity sort will already know it has no room left.
+            int stillCarrying = junkStacksCarried(this.worthKeeping);
+            if (stillCarrying > 0 && !this.candidates.isEmpty()) {
+                if (this.boxesVisitedThisTrip >= Baritone.settings().shulkerDumpMaxBoxesPerTrip.value) {
+                    logDirect(String.format(
+                            "Stopping after %d box(es) this trip with %d stack(s) still on me; raise shulkerDumpMaxBoxesPerTrip to visit more",
+                            this.boxesVisitedThisTrip, stillCarrying));
+                } else {
+                    this.targetBox = this.candidates.remove(0);
+                    startPathing();
+                    return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+                }
             }
             if (this.freedThisTrip == 0) {
                 // every box we could reach took nothing, so asking again would just repeat the walk
@@ -894,8 +1088,16 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      * inventory on its next tick and carry on with the room that was made.
      */
     private PathingCommand finishTrip() {
+        // Shelter deliberately defers while this lower-priority helper owns the container. Consume
+        // the completion tick when handing back to it; otherwise the scheduler continues past both
+        // temporary processes and can let the interrupted builder or miner act once mid-retreat.
+        boolean returningToShelter = baritone.getShelterProcess() != null
+                && baritone.getShelterProcess().isActive();
         resetTrip();
-        return new PathingCommand(null, PathingCommandType.DEFER);
+        return new PathingCommand(
+                null,
+                returningToShelter ? PathingCommandType.REQUEST_PAUSE : PathingCommandType.DEFER
+        );
     }
 
     private void markUnobtainable(BlockState state, String why) {
@@ -954,6 +1156,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.state = State.PATHING;
         this.ticksInState = 0;
         this.lastPathingPosition = null;
+        this.attemptedTargetOpen = false;
+        this.openedContainerId = -1;
     }
 
     private void notePathingProgress() {
@@ -976,6 +1180,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.depositOnly = false;
         this.freedThisTrip = 0;
         this.freeSlotsAtBox = 0;
+        this.boxesVisitedThisTrip = 0;
         this.keptThrowaway.clear();
         this.wantedItem = null;
         this.wantedState = null;
@@ -985,6 +1190,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.targetBox = null;
         this.candidates = new ArrayList<>();
         this.ticksInState = 0;
+        this.attemptedTargetOpen = false;
+        this.openedContainerId = -1;
         this.transferSlot = 0;
         this.depositSlot = -1;
         this.deposited = 0;

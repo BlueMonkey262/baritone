@@ -28,11 +28,9 @@ import baritone.api.command.exception.CommandException;
 import baritone.api.command.exception.CommandInvalidStateException;
 import baritone.api.command.helpers.TabCompleteHelper;
 import baritone.api.utils.BetterBlockPos;
-import baritone.behavior.ContainerInteractionBehavior;
 import baritone.Baritone;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -110,17 +108,12 @@ public class RestockBoxCommand extends Command {
         }
 
         IRestockBox box = boxes.addBox(pos);
-        // If this box happens to be open right now, index it straight away from the live menu.
-        // Otherwise it stays unindexed and gets indexed the first time a restock run visits it.
-        int indexed = indexIfOpen(boxes, pos);
 
         // A newly registered box may hold something we previously gave up on, so allow those
         // materials to be retried.
         baritone.getRestockProcess().clearUnobtainable();
 
-        if (indexed >= 0) {
-            logDirect(String.format("Registered shulker box at %s (%d item types indexed)", pos, indexed));
-        } else if (box.isUnindexed()) {
+        if (box.isUnindexed()) {
             logDirect(String.format("Registered shulker box at %s (contents unknown; will be checked on first visit)", pos));
         } else {
             logDirect(String.format("Shulker box at %s was already registered", pos));
@@ -236,26 +229,6 @@ public class RestockBoxCommand extends Command {
                 boxes.setMissing(pos, false);
             }
         }
-    }
-
-    /**
-     * Indexes the box from the currently open container, if that container is this box.
-     *
-     * @return the number of distinct item types recorded, or -1 if the box wasn't open
-     */
-    private int indexIfOpen(IRestockBoxCollection boxes, BetterBlockPos pos) {
-        ContainerInteractionBehavior behavior = ((Baritone) baritone).getContainerInteractionBehavior();
-        AbstractContainerMenu menu = behavior.openContainer();
-        if (menu == null || !behavior.isContainerReadable()) {
-            return -1;
-        }
-        // only trust it if the player is actually standing next to the box they named
-        if (ctx.playerFeet().distSqr(pos) > 36) {
-            return -1;
-        }
-        Map<Item, Integer> contents = behavior.readContents(menu);
-        boxes.updateContents(pos, contents);
-        return contents.size();
     }
 
     private void removeBox(IArgConsumer args, IRestockBoxCollection boxes) throws CommandException {

@@ -76,6 +76,17 @@ public interface IBaritone {
     }
 
     /**
+     * Implementations from before sheltering existed have no process to return, so the default fails
+     * explicitly instead of forcing them to invent a process with unsafe behaviour.
+     *
+     * @return The {@link IShelterProcess} instance
+     * @see IShelterProcess
+     */
+    default IShelterProcess getShelterProcess() {
+        throw new UnsupportedOperationException("This Baritone implementation has no shelter process");
+    }
+
+    /**
      * @return The {@link IExploreProcess} instance
      * @see IExploreProcess
      */

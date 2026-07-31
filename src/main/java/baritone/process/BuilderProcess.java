@@ -24,6 +24,7 @@ import baritone.api.pathing.goals.GoalComposite;
 import baritone.api.pathing.goals.GoalGetToBlock;
 import baritone.api.process.IBuilderProcess;
 import baritone.api.process.IRestockProcess;
+import baritone.api.process.IShelterProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
 import baritone.api.schematic.*;
@@ -80,6 +81,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * every position, which is fine for a house and silly for a city.
      */
     private static final long MAX_PALETTE_SCAN_VOLUME = 8_000_000L;
+    /** Builder ticks between "short of materials" reports. */
+    private static final int MISSING_LOG_INTERVAL_TICKS = 100;
 
     /**
      * Properties the player picks when placing a block, by where they stand and which face they
@@ -88,6 +91,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private static final Set<Property<?>> ORIENTATION_PROPS =
             ImmutableSet.of(
                     RotatedPillarBlock.AXIS, HorizontalDirectionalBlock.FACING,
+                    DirectionalBlock.FACING,
                     StairBlock.FACING, StairBlock.HALF,
                     TrapDoorBlock.OPEN, TrapDoorBlock.HALF
             );
@@ -124,7 +128,33 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      */
     private static final Set<Property<?>> HIT_VECTOR_PROPS = ImmutableSet.of(StairBlock.HALF, TrapDoorBlock.HALF);
 
-    private static final Direction[] ORIENT_CANDIDATE_FACINGS = {Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
+    /**
+     * Yaws to simulate placement from, horizontals first.
+     * <p>
+     * The order matters: {@link #acceptableFacings} prefers horizontal answers and only falls back
+     * to the vertical ones, because {@code Direction.UP.toYRot()} and {@code DOWN.toYRot()} are both
+     * {@code 0} -- the same yaw as {@code SOUTH}. A south-facing stair therefore "matches" all three,
+     * and treating that as three legitimate standing positions sends the builder to spots two blocks
+     * above or three below a stair it could simply have walked up to.
+     */
+    private static final Direction[] ORIENT_CANDIDATE_FACINGS = {
+            Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST,
+            Direction.UP, Direction.DOWN
+    };
+
+    /**
+     * How many of {@link #ORIENT_CANDIDATE_FACINGS} are horizontal. A block that accepts all of them
+     * has no horizontal orientation to constrain -- plain concrete, for instance -- and must not be
+     * given a stand-position goal at all.
+     * <p>
+     * This was written as a literal {@code 4} when the candidate list was horizontal-only. Widening
+     * that list to include up and down left the literal behind, so every orientation-indifferent
+     * block started reporting six acceptable facings, missed the "doesn't care" branch, and got an
+     * unsatisfiable {@link GoalPlaceOriented}. The symptom was a builder that shuffled a fraction of
+     * a block, stalled for the orientation timeout, shuffled again, and eventually paused -- on a
+     * schematic made entirely of a block with no facing property.
+     */
+    private static final int HORIZONTAL_CANDIDATE_COUNT = 4;
 
     /**
      * Standing further back than this puts the block out of reach.
@@ -135,6 +165,14 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private LongOpenHashSet observedCompleted; // positions that are completed even if they're out of render distance and we can't make sure right now
     private String name;
     private ISchematic realSchematic;
+    /**
+     * The transformed schematic before the builder's {@code buildSkipBlocks} mask is applied.
+     * Kept separately because skipped positions are deliberately absent from {@link #schematic},
+     * but pathing still needs to know whether a skipped block belongs to the active build shape.
+     */
+    private ISchematic preBuildSkipSchematic;
+    /** The unlayered version of {@link #preBuildSkipSchematic}, while building in layers. */
+    private ISchematic realPreBuildSkipSchematic;
     private ISchematic schematic;
     private Vec3i origin;
     private int ticks;
@@ -165,6 +203,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * the one where the area is routinely too big to scan.
      */
     private boolean clearingOnly;
+    /**
+     * Builder tick of the last "short of materials" report, so the throttled log below doesn't spam.
+     */
+    private int lastMissingLogTick = Integer.MIN_VALUE;
     /**
      * The destination selected by the last live path, and how many times in a row that destination
      * has changed. The assembled goal is a set of candidates, not the destination A* chose.
@@ -223,12 +265,21 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         if (Baritone.settings().buildSchematicRotation.value != net.minecraft.world.level.block.Rotation.NONE) {
             this.schematic = new RotatedSchematic(this.schematic, Baritone.settings().buildSchematicRotation.value);
         }
+        // Keep the post-transform shape before applying the dynamic buildSkipBlocks mask. Pathing
+        // uses it to protect skipped blocks only when they are actually part of this build.
+        this.preBuildSkipSchematic = this.schematic;
+        this.realPreBuildSkipSchematic = null;
         // TODO this preserves the old behavior, but maybe we should bake the setting value right here
         this.schematic = new MaskSchematic(this.schematic) {
             @Override
             public boolean partOfMask(int x, int y, int z, BlockState current) {
                 // partOfMask is only called inside the schematic so desiredState is not null
-                return !Baritone.settings().buildSkipBlocks.value.contains(this.desiredState(x, y, z, current, Collections.emptyList()).getBlock());
+                return !shouldSkip(
+                        current,
+                        this.desiredState(x, y, z, current, Collections.emptyList()),
+                        Baritone.settings().buildSkipBlocks.value,
+                        Baritone.settings().blocksToDisallowBreaking.value
+                );
             }
         };
         int x = origin.getX();
@@ -286,6 +337,30 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         this.numRepeats = 0;
         this.observedCompleted = new LongOpenHashSet();
         this.incorrectPositions = null;
+    }
+
+    /**
+     * Whether the builder should leave a schematic position alone.
+     *
+     * <p>Skipping a desired block preserves the established {@code buildSkipBlocks} behavior.
+     * Skipping a current block is necessary for clearing jobs, whose desired state is always air;
+     * it also keeps the builder's direct nearby-break path from bypassing hard protections.</p>
+     */
+    static boolean shouldSkip(BlockState current, BlockState desired, Collection<Block> buildSkipBlocks, Collection<Block> blocksToDisallowBreaking) {
+        return buildSkipBlocks.contains(current.getBlock())
+                || blocksToDisallowBreaking.contains(current.getBlock())
+                || buildSkipBlocks.contains(desired.getBlock());
+    }
+
+    /**
+     * Whether a skipped current block is protected from builder pathing at this world position.
+     * The supplied schematic is deliberately the pre-buildSkip version, so this asks about the
+     * real build shape rather than the bounding box or the target mask that excludes the block.
+     */
+    static boolean isBuildSkipBlockProtected(ISchematic protectedSchematic, int originX, int originY, int originZ,
+                                             int x, int y, int z, BlockState current, Collection<Block> buildSkipBlocks) {
+        return buildSkipBlocks.contains(current.getBlock())
+                && protectedSchematic.inSchematic(x - originX, y - originY, z - originZ, current);
     }
 
     public void resume() {
@@ -770,6 +845,13 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
         }
+        // Getting away from something that's killing us comes before anything else, including
+        // running out of room. Cheap to ask: it declines immediately unless we're actually being hit.
+        IShelterProcess shelter = baritone.getShelterProcess();
+        if (shelter != null && shelter.requestShelter(this::inventoryWants)) {
+            // the shelter process outranks us and takes control next tick
+            return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+        }
         // Out of room rather than out of materials: go and empty the inventory into a registered
         // box before carrying on. Mostly for clearing jobs, where everything broken is rubble and
         // the inventory fills long before the area is clear -- past that point blocks just drop on
@@ -784,8 +866,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         if (Baritone.settings().buildInLayers.value) {
             if (realSchematic == null) {
                 realSchematic = schematic;
+                realPreBuildSkipSchematic = preBuildSkipSchematic;
             }
             ISchematic realSchematic = this.realSchematic; // wrap this properly, dont just have the inner class refer to the builderprocess.this
+            ISchematic realPreBuildSkipSchematic = this.realPreBuildSkipSchematic;
             int minYInclusive;
             int maxYInclusive;
             // layer = 0 should be nothing
@@ -797,37 +881,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 maxYInclusive = layer * Baritone.settings().layerHeight.value - 1;
                 minYInclusive = 0;
             }
-            schematic = new ISchematic() {
-                @Override
-                public BlockState desiredState(int x, int y, int z, BlockState current, List<BlockState> approxPlaceable) {
-                    return realSchematic.desiredState(x, y, z, current, BuilderProcess.this.approxPlaceable);
-                }
-
-                @Override
-                public boolean inSchematic(int x, int y, int z, BlockState currentState) {
-                    return ISchematic.super.inSchematic(x, y, z, currentState) && y >= minYInclusive && y <= maxYInclusive && realSchematic.inSchematic(x, y, z, currentState);
-                }
-
-                @Override
-                public void reset() {
-                    realSchematic.reset();
-                }
-
-                @Override
-                public int widthX() {
-                    return realSchematic.widthX();
-                }
-
-                @Override
-                public int heightY() {
-                    return realSchematic.heightY();
-                }
-
-                @Override
-                public int lengthZ() {
-                    return realSchematic.lengthZ();
-                }
-            };
+            schematic = withLayer(realSchematic, minYInclusive, maxYInclusive);
+            preBuildSkipSchematic = withLayer(realPreBuildSkipSchematic, minYInclusive, maxYInclusive);
         }
         BuilderCalculationContext bcc = new BuilderCalculationContext();
         if (!recalc(bcc)) {
@@ -977,10 +1032,13 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     return onTick(calcFailed, isSafeToCancel, recursions + 1);
                 }
                 if (hasOrientationSkipped()) {
-                    // Keep ticking while the timed-out position is out of the goal set. A goal at
-                    // our feet lets the retry timer advance without pretending that the position
-                    // is placeable or pausing the whole build.
-                    return new PathingCommandContext(new GoalBlock(ctx.playerFeet()), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
+                    // A skipped target is deliberately absent from the goal set: falling back to
+                    // an ordinary adjacent goal would knowingly place it with the wrong state.
+                    // Retrying the same timed-out targets forever only hides that problem behind
+                    // an active builder, so stop and let the caller report the blocked positions.
+                    logDirect("Unable to reach a position that produces the requested block orientation. Pausing.");
+                    paused = true;
+                    return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
                 }
                 logDirect("Unable to do it. Pausing. resume to resume, cancel to cancel");
                 paused = true;
@@ -988,6 +1046,47 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
         }
         return commitAwarePathingCommand(goal, bcc, calcFailed);
+    }
+
+    /**
+     * Restricts a schematic to the current build layer without changing its underlying shape.
+     * Used for both the normal target schematic and the pre-buildSkip protection schematic so
+     * skipped blocks in other layers remain normally breakable while this layer is active.
+     */
+    private ISchematic withLayer(ISchematic base, int minYInclusive, int maxYInclusive) {
+        return new ISchematic() {
+            @Override
+            public BlockState desiredState(int x, int y, int z, BlockState current, List<BlockState> approxPlaceable) {
+                return base.desiredState(x, y, z, current, BuilderProcess.this.approxPlaceable);
+            }
+
+            @Override
+            public boolean inSchematic(int x, int y, int z, BlockState currentState) {
+                return ISchematic.super.inSchematic(x, y, z, currentState)
+                        && y >= minYInclusive && y <= maxYInclusive
+                        && base.inSchematic(x, y, z, currentState);
+            }
+
+            @Override
+            public void reset() {
+                base.reset();
+            }
+
+            @Override
+            public int widthX() {
+                return base.widthX();
+            }
+
+            @Override
+            public int heightY() {
+                return base.heightY();
+            }
+
+            @Override
+            public int lengthZ() {
+                return base.lengthZ();
+            }
+        };
     }
 
     private boolean recalc(BuilderCalculationContext bcc) {
@@ -1099,7 +1198,12 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 return new PathingCommandContext(null, PathingCommandType.SET_GOAL_AND_PATH, bcc);
             }
         }
-        return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
+        // A build goal is recomputed every tick, but a usable path to a still-valid placement
+        // target must be allowed to run. Forcing a replacement each tick cancels the executor
+        // before it can take its first movement; the builder can then place only blocks already
+        // in reach and appears to wait forever. Ordinary revalidation still replaces the path
+        // when its destination no longer belongs to the newly assembled goal set.
+        return new PathingCommandContext(goal, PathingCommandType.REVALIDATE_GOAL_AND_PATH, bcc);
     }
 
     /**
@@ -1329,14 +1433,24 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         List<BetterBlockPos> outOfBounds = new ArrayList<>();
         incorrectPositions.forEach(pos -> {
             BlockState state = bcc.bsi.get0(pos);
+            BlockState desiredHere = bcc.getSchematic(pos.x, pos.y, pos.z, state);
+            if (desiredHere == null) {
+                // No longer part of the build. This is not only the bounding-box case: the
+                // buildSkipBlocks mask is evaluated against the *current* block, so a position drops
+                // out the moment we put something protected there. Placing the last block of a
+                // schematic that asks for, say, a torch while torch is in blocksToDisallowBreaking
+                // did exactly that, and because recalcNearby only revisits positions the schematic
+                // still claims, the stale entry stayed in the working set forever. Below it would
+                // then be filed as breakable, sending us back to break the very block we just
+                // placed, which the same setting forbids -- a silent deadlock.
+                outOfBounds.add(pos);
+                return;
+            }
             if (state.getBlock() instanceof AirBlock) {
-                BlockState desired = bcc.getSchematic(pos.x, pos.y, pos.z, state);
-                if (desired == null) {
-                    outOfBounds.add(pos);
-                } else if (containsCouldProduce(approxPlaceable, desired)) {
+                if (containsCouldProduce(approxPlaceable, desiredHere)) {
                     placeable.add(pos);
                 } else {
-                    missing.put(desired, 1 + missing.getOrDefault(desired, 0));
+                    missing.put(desiredHere, 1 + missing.getOrDefault(desiredHere, 0));
                 }
             } else {
                 if (state.getBlock() instanceof LiquidBlock) {
@@ -1372,6 +1486,18 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         });
         sourceLiquids.forEach(pos -> toPlace.add(new GoalBlock(pos.above())));
 
+        // Material we're short of is otherwise only reported once there is nothing left to break,
+        // which on a big clear means the whole run finishes before you hear about it. A schematic
+        // that asks for a handful of blocks in a mostly-air build (a torch grid, say) can therefore
+        // place nothing at all and say nothing at all. Report it as it happens instead, throttled so
+        // it can't spam, and only under chatDebug since it is normal mid-build.
+        if (!missing.isEmpty() && Baritone.settings().chatDebug.value
+                && builderTick - lastMissingLogTick >= MISSING_LOG_INTERVAL_TICKS) {
+            lastMissingLogTick = builderTick;
+            logDirect("Short of materials for " + missing.entrySet().stream()
+                    .map(e -> String.format("%sx %s", e.getValue(), e.getKey().getBlock()))
+                    .collect(Collectors.joining(", ")));
+        }
         if (!toPlace.isEmpty()) {
             return new JankyGoalComposite(new GoalComposite(toPlace.toArray(new Goal[0])), new GoalComposite(toBreak.toArray(new Goal[0])));
         }
@@ -1547,7 +1673,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             return null;
         }
         Set<Direction> facings = acceptableFacings(pos, desired);
-        if (facings.isEmpty() || facings.size() == 4) {
+        if (facings.isEmpty() || facings.size() == HORIZONTAL_CANDIDATE_COUNT) {
             return null; // impossible, or the block doesn't care -- either way, nothing to constrain
         }
         int min = Math.max(1, Baritone.settings().buildOrientStandDistance.value);
@@ -1590,12 +1716,24 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     : null;
         }
         if (goal instanceof GoalComposite) {
+            // Oriented stand regions overlap by design. The first matching member is therefore
+            // not necessarily the goal A* selected, and timing it out can make an untouched
+            // target disappear before it is attempted. Its own target is the closest eligible
+            // member to the chosen destination.
+            BlockPos closest = null;
+            double closestDistance = Double.POSITIVE_INFINITY;
             for (Goal candidate : ((GoalComposite) goal).goals()) {
                 BlockPos target = orientedTarget(candidate, destination);
-                if (target != null) {
-                    return target;
+                if (target == null) {
+                    continue;
+                }
+                double distance = target.distSqr(destination);
+                if (distance < closestDistance) {
+                    closest = target;
+                    closestDistance = distance;
                 }
             }
+            return closest;
         }
         if (goal instanceof JankyGoalComposite) {
             BlockPos target = orientedTarget(((JankyGoalComposite) goal).primary, destination);
@@ -1652,15 +1790,28 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         if (stack.isEmpty()) {
             return result; // nothing on the hotbar to simulate with; try again once there is
         }
-        // pretend to click the top of the block below, which is the placement we'd normally make
+        // Pretend to click the top of the block below. The result is driven by player rotation;
+        // the real placement rechecks its actual support face and hit point before clicking.
         BlockHitResult hit = new BlockHitResult(new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5), Direction.UP, pos.below(), false);
+        Set<Direction> vertical = EnumSet.noneOf(Direction.class);
         for (Direction d : ORIENT_CANDIDATE_FACINGS) {
-            BlockState wouldBePlaced = wouldPlace(stack, hit, new Rotation(d.toYRot(), 0));
-            if (wouldBePlaced != null && sameBlockstate(wouldBePlaced, desired, HIT_VECTOR_PROPS)) {
+            float pitch = d == Direction.UP ? -90 : d == Direction.DOWN ? 90 : 0;
+            BlockState wouldBePlaced = wouldPlace(stack, hit, new Rotation(d.toYRot(), pitch));
+            if (wouldBePlaced == null || !sameBlockstate(wouldBePlaced, desired, HIT_VECTOR_PROPS)) {
+                continue;
+            }
+            if (d.getAxis().isVertical()) {
+                vertical.add(d);
+            } else {
                 result.add(d);
             }
         }
-        return result;
+        // Verticals only count when nothing horizontal produces the state. Because UP and DOWN carry
+        // yaw 0, they alias onto SOUTH for every block that only orients horizontally, and keeping
+        // them would offer standing positions above and below a block we can just walk up to. A
+        // genuinely vertical state -- an observer facing up -- has no horizontal answer, so this
+        // still lets those through.
+        return result.isEmpty() ? vertical : result;
     }
 
     public static class GoalPlaceOriented implements Goal, IGoalRenderPos {
@@ -1691,12 +1842,24 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
 
         @Override
         public boolean isInGoal(int x, int y, int z) {
-            if (y < this.y - 1 || y > this.y + 1) {
-                return false;
-            }
             int dx = this.x - x;
             int dz = this.z - z;
             for (Direction facing : facings) {
+                if (facing == Direction.UP) {
+                    if (y <= this.y - 3 && Math.abs(dx) <= 1 && Math.abs(dz) <= 1) {
+                        return true;
+                    }
+                    continue;
+                }
+                if (facing == Direction.DOWN) {
+                    if (y >= this.y + 2 && Math.abs(dx) <= 1 && Math.abs(dz) <= 1) {
+                        return true;
+                    }
+                    continue;
+                }
+                if (y < this.y - 1 || y > this.y + 1) {
+                    continue;
+                }
                 // how far the target is in front of us, and how far off to the side
                 int along = dx * facing.getStepX() + dz * facing.getStepZ();
                 int lateral = Math.abs(dx * facing.getStepZ() - dz * facing.getStepX());
@@ -1714,6 +1877,14 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         public double heuristic(int x, int y, int z) {
             double best = Double.POSITIVE_INFINITY;
             for (Direction facing : facings) {
+                if (facing == Direction.UP) {
+                    best = Math.min(best, GoalBlock.calculate(x - this.x, y - (this.y - 3), z - this.z));
+                    continue;
+                }
+                if (facing == Direction.DOWN) {
+                    best = Math.min(best, GoalBlock.calculate(x - this.x, y - (this.y + 2), z - this.z));
+                    continue;
+                }
                 // the dead-centre spot for this facing: straight back along it, at the block's level
                 int idealX = this.x - facing.getStepX() * minDistance;
                 int idealZ = this.z - facing.getStepZ() * minDistance;
@@ -1866,6 +2037,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         name = null;
         schematic = null;
         realSchematic = null;
+        preBuildSkipSchematic = null;
+        realPreBuildSkipSchematic = null;
         layer = Baritone.settings().startAtLayer.value;
         numRepeats = 0;
         paused = false;
@@ -2000,6 +2173,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
 
         private final List<BlockState> placeable;
         private final ISchematic schematic;
+        private final ISchematic preBuildSkipSchematic;
         private final int originX;
         private final int originY;
         private final int originZ;
@@ -2008,6 +2182,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             super(BuilderProcess.this.baritone, true); // wew lad
             this.placeable = approxPlaceable(9);
             this.schematic = BuilderProcess.this.schematic;
+            this.preBuildSkipSchematic = BuilderProcess.this.preBuildSkipSchematic;
             this.originX = origin.getX();
             this.originY = origin.getY();
             this.originZ = origin.getZ();
@@ -2031,13 +2206,21 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
             BlockState sch = getSchematic(x, y, z, current);
             if (sch != null) {
-                // TODO this can return true even when allowPlace is off.... is that an issue?
                 if (sch.getBlock() instanceof AirBlock) {
                     // we want this to be air, but they're asking if they can place here
                     // this won't be a schematic block, this will be a throwaway
+                    if (!hasThrowaway) {
+                        // ...and we have no throwaway to place. Saying yes here plans a path that
+                        // scaffolds through the build, which then dies on its first movement with
+                        // "bb pls get me some blocks" and gets replanned identically every tick.
+                        return COST_INF;
+                    }
                     return placeBlockCost * Baritone.settings().placeIncorrectBlockPenaltyMultiplier.value; // we're going to have to break it eventually
                 }
-                if (containsCouldProduce(placeable, sch)) {
+                if (containsCouldProduce(placeable, sch) && MovementHelper.canWalkOn(bsi, x, y, z, sch)) {
+                    // free, but only if the schematic block is something we could then stand on.
+                    // Every caller wants this position to become walkable support; a schematic full
+                    // of torches or slabs would otherwise look like free scaffolding we can't use.
                     return 0; // thats right we gonna make it FREE to place a block where it should go in a structure
                     // no place block penalty at all 😎
                     // i'm such an idiot that i just tried to copy and paste the epic gamer moment emoji too
@@ -2061,6 +2244,12 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         @Override
         public double breakCostMultiplierAt(int x, int y, int z, BlockState current) {
             if ((!allowBreak && !allowBreakAnyway.contains(current.getBlock())) || isPossiblyProtected(x, y, z)) {
+                return COST_INF;
+            }
+            if (isBuildSkipBlockProtected(
+                    preBuildSkipSchematic, originX, originY, originZ, x, y, z, current,
+                    Baritone.settings().buildSkipBlocks.value
+            )) {
                 return COST_INF;
             }
             BlockState sch = getSchematic(x, y, z, current);

@@ -31,6 +31,7 @@ import baritone.command.manager.CommandManager;
 import baritone.event.GameEventHandler;
 import baritone.process.*;
 import baritone.selection.SelectionManager;
+import baritone.testing.TestingBehavior;
 import baritone.utils.BlockStateInterface;
 import baritone.utils.GuiClick;
 import baritone.utils.InputOverrideHandler;
@@ -71,6 +72,8 @@ public class Baritone implements IBaritone {
     private final InventoryBehavior inventoryBehavior;
     private final InputOverrideHandler inputOverrideHandler;
     private final ContainerInteractionBehavior containerInteractionBehavior;
+    private final ThreatBehavior threatBehavior;
+    private final TestingBehavior testingBehavior;
 
     private final FollowProcess followProcess;
     private final MineProcess mineProcess;
@@ -81,6 +84,8 @@ public class Baritone implements IBaritone {
     private final FarmProcess farmProcess;
     private final InventoryPauserProcess inventoryPauserProcess;
     private final RestockProcess restockProcess;
+    private final ShelterProcess shelterProcess;
+    private final PickupBlocksProcess pickupBlocksProcess;
     private final IElytraProcess elytraProcess;
 
     private final PathingControlManager pathingControlManager;
@@ -113,6 +118,8 @@ public class Baritone implements IBaritone {
             this.inputOverrideHandler = this.registerBehavior(InputOverrideHandler::new);
             this.registerBehavior(WaypointBehavior::new);
             this.containerInteractionBehavior = this.registerBehavior(ContainerInteractionBehavior::new);
+            this.threatBehavior       = this.registerBehavior(ThreatBehavior::new);
+            this.testingBehavior      = this.registerBehavior(TestingBehavior::new);
             // last, so the hotbar slot it picks survives whatever the processes chose this tick
             this.registerBehavior(EatBehavior::new);
         }
@@ -126,9 +133,11 @@ public class Baritone implements IBaritone {
             // must be registered before the builder: registerProcess calls onLostControl
             // immediately, and BuilderProcess#onLostControl asks the restock process to reset
             this.restockProcess          = this.registerProcess(RestockProcess::new);
+            this.shelterProcess          = this.registerProcess(ShelterProcess::new);
             this.builderProcess          = this.registerProcess(BuilderProcess::new);
             this.exploreProcess          = this.registerProcess(ExploreProcess::new);
             this.farmProcess             = this.registerProcess(FarmProcess::new);
+            this.pickupBlocksProcess     = this.registerProcess(PickupBlocksProcess::new);
             this.inventoryPauserProcess  = this.registerProcess(InventoryPauserProcess::new);
             this.elytraProcess           = this.registerProcess(ElytraProcess::create);
             this.registerProcess(BackfillProcess::new);
@@ -194,6 +203,10 @@ public class Baritone implements IBaritone {
         return this.inventoryBehavior;
     }
 
+    public TestingBehavior getTestingBehavior() {
+        return this.testingBehavior;
+    }
+
     @Override
     public LookBehavior getLookBehavior() {
         return this.lookBehavior;
@@ -207,6 +220,10 @@ public class Baritone implements IBaritone {
     @Override
     public MineProcess getMineProcess() {
         return this.mineProcess;
+    }
+
+    public PickupBlocksProcess getPickupBlocksProcess() {
+        return this.pickupBlocksProcess;
     }
 
     @Override
@@ -225,6 +242,15 @@ public class Baritone implements IBaritone {
 
     public ContainerInteractionBehavior getContainerInteractionBehavior() {
         return this.containerInteractionBehavior;
+    }
+
+    @Override
+    public ShelterProcess getShelterProcess() {
+        return this.shelterProcess;
+    }
+
+    public ThreatBehavior getThreatBehavior() {
+        return this.threatBehavior;
     }
 
     @Override

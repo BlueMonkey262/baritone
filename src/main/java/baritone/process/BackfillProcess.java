@@ -37,6 +37,7 @@ import net.minecraft.world.level.chunk.EmptyLevelChunk;
 public final class BackfillProcess extends BaritoneProcessHelper {
 
     public HashMap<BlockPos, BlockState> blocksToReplace = new HashMap<>();
+    private boolean reportedParkourIncompatibility;
 
     public BackfillProcess(Baritone baritone) {
         super(baritone);
@@ -44,6 +45,9 @@ public final class BackfillProcess extends BaritoneProcessHelper {
 
     @Override
     public boolean isActive() {
+        if (!Baritone.settings().backfill.value || !Baritone.settings().allowParkour.value) {
+            reportedParkourIncompatibility = false;
+        }
         if (ctx.player() == null || ctx.world() == null) {
             return false;
         }
@@ -51,8 +55,10 @@ public final class BackfillProcess extends BaritoneProcessHelper {
             return false;
         }
         if (Baritone.settings().allowParkour.value) {
-            logDirect("Backfill cannot be used with allowParkour true");
-            Baritone.settings().backfill.value = false;
+            if (!reportedParkourIncompatibility) {
+                logDirect("Backfill cannot be used with allowParkour true");
+                reportedParkourIncompatibility = true;
+            }
             return false;
         }
         for (BlockPos pos : new ArrayList<>(blocksToReplace.keySet())) {

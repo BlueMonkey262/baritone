@@ -142,6 +142,21 @@ public final class Settings {
     public final Setting<Double> walkOnWaterOnePenalty = new Setting<>(3D);
 
     /**
+     * Multiplier on the cost of moving through water.
+     * <p>
+     * Upstream costs a block of water at {@code 20 / 2.2}, the speed of walking along the bottom of
+     * it. That number is right for a straight line on a flat floor and optimistic about everything
+     * else: at the surface the player bobs, entering and leaving costs momentum, and none of it can
+     * be sprinted. Left at 1.0, a two-block-deep pool reads as barely worse than a detour of the
+     * same length, and Baritone swims when walking around would have been quicker.
+     * <p>
+     * 1.0 is exactly upstream. Higher values buy longer detours to stay dry -- at the default of
+     * 2.0 a block of water costs about four blocks of walking, so it will go around anything it can
+     * get around in less than four times the distance.
+     */
+    public final Setting<Double> waterCostMultiplier = new Setting<>(2.0D);
+
+    /**
      * Don't allow breaking blocks next to liquids.
      * <p>
      * Enable if you have mods adding custom fluid physics.
@@ -275,7 +290,10 @@ public final class Settings {
     )));
 
     /**
-     * Blocks that Baritone is not allowed to break
+     * Blocks that Baritone is not allowed to break.
+     * <p>
+     * Builder operations leave a position containing one of these blocks untouched, including
+     * clearing selections that otherwise request air there.
      */
     public final Setting<List<Block>> blocksToDisallowBreaking = new Setting<>(new ArrayList<>(
             // Leave Empty by Default
@@ -306,9 +324,9 @@ public final class Settings {
     )));
 
     /**
-     * A list of blocks to be treated as correct.
+     * A list of blocks to be treated as correct or left untouched by the builder.
      * <p>
-     * If a schematic asks for any block on this list at a certain position, it will be treated as correct, regardless of what it currently is.
+     * If a schematic asks for any block on this list at a certain position, it will be treated as correct, regardless of what it currently is. If the current block is on this list, the builder also leaves it in place; this includes clearing selections that request air.
      */
     public final Setting<List<Block>> buildSkipBlocks = new Setting<>(new ArrayList<>(Arrays.asList(
 
@@ -389,6 +407,33 @@ public final class Settings {
      * @see #buildOrientBeforePlacing
      */
     public final Setting<Integer> buildOrientTimeoutTicks = new Setting<>(200);
+
+    /**
+     * When clearing an area with {@code sel cleararea}, leave a grid of torches on the floor of the
+     * cleared region instead of hollowing it out into the dark.
+     *
+     * @see #torchGridSpacing
+     */
+    public final Setting<Boolean> torchGrid = new Setting<>(false);
+
+    /**
+     * Blocks between torches along each horizontal axis when {@link #torchGrid} is on. The grid is
+     * centred in the selection, so a region narrower than the spacing still gets a torch in the
+     * middle. Values below {@code 1} are treated as {@code 1}.
+     *
+     * @see #torchGrid
+     */
+    public final Setting<Integer> torchGridSpacing = new Setting<>(7);
+
+    /**
+     * Skip a grid position when a torch already exists within this many blocks of it, so clearing an
+     * area you have already lit by hand tops it up instead of laying a second grid through it.
+     * Measured as a true radius from the grid position, and checked once when the build starts, so
+     * only chunks loaded or cached at that moment are consulted. {@code 0} disables the check.
+     *
+     * @see #torchGrid
+     */
+    public final Setting<Integer> torchGridAvoidExistingRadius = new Setting<>(5);
 
     /**
      * If this setting is true, Baritone will never break a block that is adjacent to an unsupported falling block.
@@ -619,10 +664,27 @@ public final class Settings {
      * <p>
      * Deliberately tighter than {@link #restockDumpWhenFreeSlotsBelow}, because this trip costs a
      * walk of up to {@link #restockMaxDistance} in each direction rather than a few clicks.
+     * <p>
+     * This is only the <i>trigger</i> for leaving the work. It does not decide when the trip ends:
+     * once out there, everything the current job has no use for is unloaded, across as many boxes
+     * as {@link #shulkerDumpMaxBoxesPerTrip} allows. Ending the trip the moment this threshold was
+     * satisfied again meant walking back to the dig site still nearly full.
      *
      * @see #shulkerDump
      */
     public final Setting<Integer> shulkerDumpWhenFreeSlotsBelow = new Setting<>(2);
+
+    /**
+     * How many boxes a single unload trip may open before going back to work.
+     * <p>
+     * An unload trip keeps moving to the next box while it is still carrying rubble, which is what
+     * makes one trip worth the walk. This bounds that: with a large depot and a full inventory of
+     * junk nobody wants a tour of every box registered. Hitting the bound is reported rather than
+     * silently treated as "the depot is full".
+     *
+     * @see #shulkerDump
+     */
+    public final Setting<Integer> shulkerDumpMaxBoxesPerTrip = new Setting<>(4);
 
     /**
      * How many stacks of each {@link #acceptableThrowawayItems} block to hold back when unloading,
@@ -632,6 +694,110 @@ public final class Settings {
      * @see #shulkerDump
      */
     public final Setting<Integer> shulkerDumpKeepThrowawayStacks = new Setting<>(1);
+
+    /**
+     * When hostile mobs start actually hurting us during a build or mine, stop working, retreat to a
+     * registered shulker box, unload, and -- if it's night -- find a bed and sleep it off.
+     * <p>
+     * Meant for playing in survival, where a long {@code #sel cleararea} out in the open otherwise
+     * carries on regardless while a zombie beats on you. Only mob damage counts; falling in lava is
+     * not something running away improves.
+     * <p>
+     * Off by default, for the same reason {@link #shulkerDump} is: it walks the player away from
+     * their work, which is not something to start doing to someone who didn't ask for it.
+     *
+     * @see #shelterMinHits
+     */
+    public final Setting<Boolean> shelterOnAttack = new Setting<>(false);
+
+    /**
+     * How many hostile hits within {@link #shelterThreatMemoryTicks} it takes before we run.
+     * <p>
+     * More than one on purpose. A single skeleton arrow on the way past is not worth abandoning a
+     * job halfway across the world for; something that has hit us twice in ten seconds is.
+     *
+     * @see #shelterOnAttack
+     */
+    public final Setting<Integer> shelterMinHits = new Setting<>(2);
+
+    /**
+     * How long a hostile hit counts as "we are under attack", in ticks.
+     * <p>
+     * Also decides when it's calm enough to go back to work: once nothing has hit us for this long,
+     * sheltering ends.
+     *
+     * @see #shelterOnAttack
+     */
+    public final Setting<Integer> shelterThreatMemoryTicks = new Setting<>(200);
+
+    /**
+     * Whether to empty the inventory into the box we retreated to.
+     * <p>
+     * On by default: we've made the walk anyway, and rubble left in the inventory is rubble scattered
+     * on the floor if the retreat doesn't work out. Independent of {@link #shulkerDump}, which is
+     * about whether a full inventory is worth a trip of its own.
+     *
+     * @see #shelterOnAttack
+     */
+    public final Setting<Boolean> shelterUnloadOnRetreat = new Setting<>(true);
+
+    /**
+     * Whether to look for a bed and sleep once we've retreated.
+     * <p>
+     * Only ever attempted when the game would allow it -- at night or during a thunderstorm, and not
+     * in a dimension where beds explode.
+     *
+     * @see #shelterOnAttack
+     */
+    public final Setting<Boolean> shelterSleepInBeds = new Setting<>(true);
+
+    /**
+     * How far to look for a bed, in blocks. Only loaded chunks are searched, since a bed we can't
+     * observe is one we can't verify is there.
+     *
+     * @see #shelterSleepInBeds
+     */
+    public final Setting<Integer> shelterBedSearchRadius = new Setting<>(64);
+
+    /**
+     * How many times to try to get into a bed before settling for waiting the night out.
+     * <p>
+     * "You may not rest now, there are monsters nearby" is normal rather than exceptional, so each
+     * refusal sends us back to the box for {@link #shelterRetryDelayTicks} and then back to the bed.
+     * This bounds that loop.
+     *
+     * @see #shelterSleepInBeds
+     */
+    public final Setting<Integer> shelterMaxSleepAttempts = new Setting<>(5);
+
+    /**
+     * Ticks to wait at the box after a bed refuses us, before walking back to try again. Long enough
+     * that whatever was standing near the bed has had a chance to wander off.
+     *
+     * @see #shelterSleepInBeds
+     */
+    public final Setting<Integer> shelterRetryDelayTicks = new Setting<>(100);
+
+    /**
+     * How long to sit at the box waiting for things to calm down before giving up and going back to
+     * work anyway.
+     * <p>
+     * Standing still while something is still reaching us is no safer than working, so there has to
+     * be an end to it.
+     *
+     * @see #shelterOnAttack
+     */
+    public final Setting<Integer> shelterMaxWaitTicks = new Setting<>(1200);
+
+    /**
+     * Ticks without moving before a retreat or a walk to a bed is treated as stuck.
+     * <p>
+     * The timer resets whenever the player's feet move, so this bounds being stuck rather than
+     * bounding the length of the walk.
+     *
+     * @see #shelterOnAttack
+     */
+    public final Setting<Integer> shelterRetreatTimeoutTicks = new Setting<>(100);
 
     /**
      * When running a goto towards a nether portal block, walk all the way into the portal
@@ -1348,6 +1514,14 @@ public final class Settings {
      * is only necessary in very large schematics where rescanning the whole thing is costly.
      */
     public final Setting<Integer> builderTickScanRadius = new Setting<>(5);
+
+    /**
+     * Pick up dropped block items within 10 blocks of the player.
+     * <p>
+     * This is useful for collecting the drops from builder, mining, farm, and pathing breaks
+     * before continuing the active job.
+     */
+    public final Setting<Boolean> pickupBlocks = new Setting<>(false);
 
     /**
      * While mining, should it also consider dropped items of the correct type as a pathing destination (as well as ore blocks)?
