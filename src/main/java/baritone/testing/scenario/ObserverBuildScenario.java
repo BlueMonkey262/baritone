@@ -37,14 +37,23 @@ import java.util.Map;
  * <p>
  * Horizontal observers exercise the same stand-on-the-correct-side machinery as stairs, while the
  * up- and down-facing observers also require the builder to choose a useful vertical angle. The
- * up-facing target uses the floor below it; the down-facing target has an adjacent ledge so it can
- * be aimed at from above.
+ * up-facing target needs two staged blocks, for two different reasons. The block above it is what
+ * the real placement clicks: standing below and looking straight up, its underside is the first
+ * face the ray meets. The side support exists because {@code placementGoal} gates on
+ * {@code HORIZONTALS_BUT_ALSO_DOWN_____SO_EVERY_DIRECTION_EXCEPT_UP}, so a target whose only
+ * neighbour is above it never reaches the orientation planner at all. (The side support is also
+ * what {@code acceptableFacings} happens to match {@code UP} against first, since a vertical look
+ * and a vertical face normal are perpendicular and so permitted; the answer is the same either
+ * way.) The down-facing target has an adjacent ledge so it can be aimed at from above.
  */
 public final class ObserverBuildScenario extends TestScenario {
 
     private static final int BUILD_X = 6;
     private static final int SPACING = 3;
-    private static final int UP_TARGET_Y = 0;
+    // Exactly two above the arena floor's standing level. The UP goal puts the player's feet at
+    // targetY-2 and searchForPlacables only scans to dy=+2, so this is the one height at which
+    // both are satisfiable: feet at y=0, target at y=2, its underside clicked from below.
+    private static final int UP_TARGET_Y = 2;
     private static final int DOWN_TARGET_Y = 0;
     private static final int SUPPORT_Z = -1;
 
@@ -87,8 +96,11 @@ public final class ObserverBuildScenario extends TestScenario {
     public void stage(TestArena arena) {
         arena.fill(-4, -3, -12, 24, -1, 12, "minecraft:stone");
 
-        // The side support is outside the schematic's z=0 slice. The ledge above the DOWN target
-        // is declared in the schematic too, so it remains in place for the placement.
+        // The side supports are outside the schematic's z=0 slice. The blocks above the vertical
+        // targets are declared in the schematic too, so they remain in place for the placement.
+        int upX = targetX(4);
+        arena.setBlock(upX, UP_TARGET_Y + 1, 0, "minecraft:stone");
+        arena.setBlock(upX, UP_TARGET_Y, SUPPORT_Z, "minecraft:stone");
         int downX = targetX(5);
         arena.setBlock(downX, DOWN_TARGET_Y, SUPPORT_Z, "minecraft:stone");
         arena.setBlock(downX, DOWN_TARGET_Y + 1, 0, "minecraft:stone");
@@ -101,6 +113,8 @@ public final class ObserverBuildScenario extends TestScenario {
     @Override
     public boolean stagingComplete(TestArena arena) {
         if (!arena.stateAt(0, -1, 0).is(Blocks.STONE)
+                || !arena.stateAt(targetX(4), UP_TARGET_Y + 1, 0).is(Blocks.STONE)
+                || !arena.stateAt(targetX(4), UP_TARGET_Y, SUPPORT_Z).is(Blocks.STONE)
                 || !arena.stateAt(targetX(5), DOWN_TARGET_Y, SUPPORT_Z).is(Blocks.STONE)
                 || !arena.stateAt(targetX(5), DOWN_TARGET_Y + 1, 0).is(Blocks.STONE)) {
             return false;
@@ -117,7 +131,7 @@ public final class ObserverBuildScenario extends TestScenario {
     public void start(TestArena arena) {
         BetterBlockPos origin = arena.at(BUILD_X, 0, 0);
         arena.note("building %d observers at %s with facings %s", FACINGS.length, origin, facingList());
-        arena.note("up-facing target uses the floor below it; down-facing target has an adjacent y+1 ledge");
+        arena.note("up-facing target uses the underside of a block above it plus a side support for the placement gate; down-facing target has an adjacent y+1 ledge");
         arena.baritone().getBuilderProcess().build(
                 "harness-" + name(),
                 schematic(),
@@ -228,13 +242,14 @@ public final class ObserverBuildScenario extends TestScenario {
         int width = targetX(FACINGS.length - 1) - BUILD_X + 1;
         BlockState air = Blocks.AIR.defaultBlockState();
         // StaticSchematic stores states as [x][z][y], not [x][y][z].
-        int height = Math.max(UP_TARGET_Y, DOWN_TARGET_Y + 1) + 1;
+        int height = Math.max(UP_TARGET_Y + 1, DOWN_TARGET_Y + 1) + 1;
         BlockState[][][] states = new BlockState[width][1][height];
         for (int x = 0; x < states.length; x++) {
             for (int y = 0; y < states[x][0].length; y++) {
                 states[x][0][y] = air;
             }
         }
+        states[targetX(4) - BUILD_X][0][UP_TARGET_Y + 1] = Blocks.STONE.defaultBlockState();
         states[targetX(5) - BUILD_X][0][DOWN_TARGET_Y + 1] = Blocks.STONE.defaultBlockState();
         for (int i = 0; i < FACINGS.length; i++) {
             states[i * SPACING][0][targetY(FACINGS[i])] = Blocks.OBSERVER.defaultBlockState()

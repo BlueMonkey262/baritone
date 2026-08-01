@@ -528,7 +528,14 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private Optional<Placement> searchForPlacables(BuilderCalculationContext bcc, List<BlockState> desirableOnHotbar) {
         BetterBlockPos center = ctx.playerFeet();
         for (int dx = -5; dx <= 5; dx++) {
-            for (int dy = -5; dy <= 1; dy++) {
+            // Upstream's upper bound was +1, which silently made an up-facing block unplaceable
+            // from any position. Producing facing=up means looking up, which means the eye must sit
+            // below the target's underside -- feet at targetY-2 at the highest, i.e. dy = +2. A
+            // scan that stops at +1 therefore never even offers the position the orientation goal
+            // walked to, so no placement rotation is ever requested and the builder stands still
+            // with its pitch wherever pathing left it. Keep this in step with GoalPlaceOriented's
+            // UP branch.
+            for (int dy = -5; dy <= 2; dy++) {
                 for (int dz = -5; dz <= 5; dz++) {
                     int x = center.x + dx;
                     int y = center.y + dy;
@@ -1786,6 +1793,15 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         }
         // Pretend to click the top of the block below. The result is driven by player rotation;
         // the real placement rechecks its actual support face and hit point before clicking.
+        //
+        // Deliberately NOT support-aware. Enumerating real supports and deriving a hit from each
+        // was tried and reverted: for a pillar the axis comes from the clicked *face*, not from
+        // where we look, so a north neighbour makes axis=z "matchable" from three different look
+        // directions and this method starts returning a stand constraint for a state that does not
+        // depend on where we stand. That made logs-axes bimodal -- placing the axis=z log in ~95s
+        // or not at all inside a 240s budget. The impossible-looking UP pairing here is harmless:
+        // this method only asks which *look* produces the state, and the real placement re-derives
+        // its own face and hit point.
         BlockHitResult hit = new BlockHitResult(new Vec3(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5), Direction.UP, pos.below(), false);
         Set<Direction> vertical = EnumSet.noneOf(Direction.class);
         for (Direction d : ORIENT_CANDIDATE_FACINGS) {
@@ -1840,7 +1856,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             int dz = this.z - z;
             for (Direction facing : facings) {
                 if (facing == Direction.UP) {
-                    if (y <= this.y - 3 && Math.abs(dx) <= 1 && Math.abs(dz) <= 1) {
+                    // -2, not -3: the eye sits at feet+1.62, so feet at targetY-2 puts it at
+                    // targetY-0.38, just below the underside we have to aim at -- which is all
+                    // being "below" requires. -3 was needlessly strict, and it put the target at
+                    // dy=+3, outside searchForPlacables' scan window entirely.
+                    if (y <= this.y - 2 && Math.abs(dx) <= 1 && Math.abs(dz) <= 1) {
                         return true;
                     }
                     continue;
@@ -1872,7 +1892,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             double best = Double.POSITIVE_INFINITY;
             for (Direction facing : facings) {
                 if (facing == Direction.UP) {
-                    best = Math.min(best, GoalBlock.calculate(x - this.x, y - (this.y - 3), z - this.z));
+                    best = Math.min(best, GoalBlock.calculate(x - this.x, y - (this.y - 2), z - this.z));
                     continue;
                 }
                 if (facing == Direction.DOWN) {
