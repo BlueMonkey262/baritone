@@ -69,6 +69,21 @@ a world and sustained control. See FORK-NOTES.md §7 before adding a scenario �
 verdicts read world state rather than chat, and why staging goes through commands rather than the
 integrated server's level object.
 
+**Two gates.** CI (`.github/workflows/build.yml`) runs `:test` and compiles all four loaders on
+every push; that is everything a machine can check unattended. The in-game suite is a *manual* gate
+before a release or a risky merge:
+
+```bash
+python3 scripts/testing/parallel_run.py -n 3 --timeout 1800 --curated --jar dist/baritone-unoptimized-fabric-<version>.jar
+python3 scripts/testing/diff_baseline.py    # verdict + timing changes vs scripts/testing/baseline.json
+```
+
+Judge a change against the **whole** suite, not the scenario you were fixing. A green target
+scenario is not evidence of a good fix: one change here made its own scenario pass while doubling
+suite wall clock and breaking an unrelated one. `diff_baseline.py` reports tick counts and wall
+clock for exactly that reason — performance is a stated goal (FORK-NOTES.md), so a slowdown is a
+defect. Refresh the baseline with `--update` only when a change is meant to move it.
+
 ### Test environment limits
 
 Tests run on a plain JVM with **no Minecraft bootstrap**. Anything that touches the registries or item components

@@ -1,0 +1,106 @@
+{
+  "instances": 3,
+  "scenarios": {
+    "build-directional": {
+      "maxTicks": 83,
+      "medianTicks": 82,
+      "minTicks": 82,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "build-observers": {
+      "maxTicks": 104,
+      "medianTicks": 104,
+      "minTicks": 104,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "build-schematic": {
+      "maxTicks": 374,
+      "medianTicks": 373,
+      "minTicks": 357,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "logs-axes": {
+      "maxTicks": 53,
+      "medianTicks": 53,
+      "minTicks": 52,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "pathing-course": {
+      "maxTicks": 252,
+      "medianTicks": 251,
+      "minTicks": 249,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "restock-from-box": {
+      "maxTicks": 476,
+      "medianTicks": 463,
+      "minTicks": 439,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "stairs-halves": {
+      "maxTicks": 455,
+      "medianTicks": 455,
+      "minTicks": 455,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "water-detour": {
+      "maxTicks": 130,
+      "medianTicks": 130,
+      "minTicks": 130,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "water-detour-x30": {
+      "maxTicks": 130,
+      "medianTicks": 130,
+      "minTicks": 130,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "water-detour-x8": {
+      "maxTicks": 130,
+      "medianTicks": 130,
+      "minTicks": 130,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    }
+  },
+  "wallClockSeconds": 203
+}

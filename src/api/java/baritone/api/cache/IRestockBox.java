@@ -88,13 +88,33 @@ public interface IRestockBox {
      * @return An estimate between {@code 0} and {@link #SHULKER_SLOTS}
      */
     default int estimatedUsedSlots() {
+        return estimatedUsedSlots(getContents(), Item::getDefaultMaxStackSize);
+    }
+
+    /**
+     * The arithmetic behind {@link #estimatedUsedSlots()}, with the stack size supplied rather than
+     * read off the item.
+     * <p>
+     * Split out so it can be tested. Asking an {@link Item} for its stack size needs bound item
+     * components, which means a full Minecraft bootstrap; the rounding, saturation and overflow
+     * behaviour here is what actually warrants testing and none of it needs a game. Callers in the
+     * mod pass {@code Item::getDefaultMaxStackSize}.
+     *
+     * @param contents     total count per item, as {@link #getContents()} records it
+     * @param maxStackSize the maximum stack size of a given item; values below one are treated as
+     *                     one, so a bad answer costs an over-estimate rather than a divide by zero
+     * @return An estimate between {@code 0} and {@link #SHULKER_SLOTS}
+     */
+    static <T> int estimatedUsedSlots(Map<T, Integer> contents, java.util.function.ToIntFunction<T> maxStackSize) {
         long used = 0;
-        for (Map.Entry<Item, Integer> entry : getContents().entrySet()) {
+        for (Map.Entry<T, Integer> entry : contents.entrySet()) {
             int count = entry.getValue();
             if (count <= 0) {
                 continue;
             }
-            int maxStack = Math.max(1, entry.getKey().getDefaultMaxStackSize());
+            int maxStack = Math.max(1, maxStackSize.applyAsInt(entry.getKey()));
+            // widened to long before the +maxStack-1, or Integer.MAX_VALUE wraps negative and a
+            // full box reads as empty
             used += (count + (long) maxStack - 1L) / maxStack;
             if (used >= SHULKER_SLOTS) {
                 return SHULKER_SLOTS;
