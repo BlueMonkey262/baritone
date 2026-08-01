@@ -6,7 +6,7 @@ those remain as history.
 
 ## Where things are
 
-`ROADMAP.md` is the plan: Continuo → publicly released mod. Phase 0 and phase 2a are done,
+`ROADMAP.md` is the plan: Tenor → publicly released mod. Phase 0 and phase 2a are done,
 phase 1 (defect debt) is in progress.
 
 **The regression net exists now, and this is the thing to actually rely on.**
@@ -19,6 +19,15 @@ phase 1 (defect debt) is in progress.
 
 Judge a change against the **whole** suite. Twice today a change made its own scenario green while
 breaking something else; both times only the full run caught it.
+
+## Naming history
+
+The project was renamed twice on 2026-08-01: to **Continuo** in `137218c4`, then to **Tenor**.
+
+**Release `v0.1.0` is published under the name Continuo** — that is what shipped and its notes and
+jar filenames (`continuo-*-0.1.0.jar`) say so. Do not retitle it. The next release is the first
+under Tenor and its notes should mention the rename, or users comparing the two will reasonably
+think they are different projects.
 
 ## Open PRs, stacked, all CI-green, none merged
 
