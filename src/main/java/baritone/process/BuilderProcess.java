@@ -1032,13 +1032,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     return onTick(calcFailed, isSafeToCancel, recursions + 1);
                 }
                 if (hasOrientationSkipped()) {
-                    // A skipped target is deliberately absent from the goal set: falling back to
-                    // an ordinary adjacent goal would knowingly place it with the wrong state.
-                    // Retrying the same timed-out targets forever only hides that problem behind
-                    // an active builder, so stop and let the caller report the blocked positions.
-                    logDirect("Unable to reach a position that produces the requested block orientation. Pausing.");
-                    paused = true;
-                    return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+                    // Keep ticking while the timed-out position is out of the goal set. A goal at
+                    // our feet lets the retry timer advance without pretending that the position
+                    // is placeable or pausing the whole build.
+                    return new PathingCommandContext(new GoalBlock(ctx.playerFeet()), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
                 }
                 logDirect("Unable to do it. Pausing. resume to resume, cancel to cancel");
                 paused = true;
@@ -1198,12 +1195,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 return new PathingCommandContext(null, PathingCommandType.SET_GOAL_AND_PATH, bcc);
             }
         }
-        // A build goal is recomputed every tick, but a usable path to a still-valid placement
-        // target must be allowed to run. Forcing a replacement each tick cancels the executor
-        // before it can take its first movement; the builder can then place only blocks already
-        // in reach and appears to wait forever. Ordinary revalidation still replaces the path
-        // when its destination no longer belongs to the newly assembled goal set.
-        return new PathingCommandContext(goal, PathingCommandType.REVALIDATE_GOAL_AND_PATH, bcc);
+        // unreachable-build-target measures 20 identical searches per second under both FORCE
+        // and ordinary revalidation. The revalidation layer is excluded; that scenario holds it.
+        return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
     }
 
     /**
@@ -1694,7 +1688,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             return;
         }
         Set<Direction> facings = acceptableFacings(pos, desired);
-        if (!facings.isEmpty() && facings.size() != 4) {
+        if (!facings.isEmpty() && facings.size() != HORIZONTAL_CANDIDATE_COUNT) {
             orientFirstSeen.putIfAbsent(BetterBlockPos.longHash(pos.getX(), pos.getY(), pos.getZ()), builderTick);
         }
     }

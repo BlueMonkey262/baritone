@@ -95,10 +95,11 @@ public final class StairsHalvesScenario extends TestScenario {
     public void stage(TestArena arena) {
         arena.fill(-4, -3, -12, 24, -1, 12, "minecraft:stone");
         // A top-half stair is selected by clicking the upper part of a side face, not by clicking
-        // the floor. These supports are outside the schematic's two rows.
+        // the floor. The schematic declares these support blocks as already correct.
         int topRowZ = BUILD_Z + SPACING;
         for (int i = 0; i < FACINGS.length; i++) {
-            arena.setBlock(BUILD_X + i * SPACING, 0, topRowZ + 1, "minecraft:stone");
+            arena.setBlock(BUILD_X + i * SPACING + FACINGS[i].getStepX(), 0,
+                    topRowZ + FACINGS[i].getStepZ(), "minecraft:stone");
         }
         arena.command("clear @s");
         arena.command("give @s minecraft:oak_stairs 64");
@@ -107,11 +108,20 @@ public final class StairsHalvesScenario extends TestScenario {
 
     @Override
     public boolean stagingComplete(TestArena arena) {
-        return arena.stateAt(0, -1, 0).is(Blocks.STONE)
-                && arena.stateAt(BUILD_X, 0, BUILD_Z).isAir()
-                && arena.stateAt(BUILD_X + (FACINGS.length - 1) * SPACING, 0,
-                BUILD_Z + (HALVES.length - 1) * SPACING).isAir()
-                && arena.stateAt(BUILD_X, 0, BUILD_Z + SPACING + 1).is(Blocks.STONE);
+        if (!arena.stateAt(0, -1, 0).is(Blocks.STONE)
+                || !arena.stateAt(BUILD_X, 0, BUILD_Z).isAir()
+                || !arena.stateAt(BUILD_X + (FACINGS.length - 1) * SPACING, 0,
+                BUILD_Z + (HALVES.length - 1) * SPACING).isAir()) {
+            return false;
+        }
+        int topRowZ = BUILD_Z + SPACING;
+        for (int i = 0; i < FACINGS.length; i++) {
+            if (!arena.stateAt(BUILD_X + i * SPACING + FACINGS[i].getStepX(), 0,
+                    topRowZ + FACINGS[i].getStepZ()).is(Blocks.STONE)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -173,6 +183,13 @@ public final class StairsHalvesScenario extends TestScenario {
                     tally.wrongFacing, tally.wrongHalf);
         }
         return null;
+    }
+
+    @Override
+    public String progressMarker(TestArena arena) {
+        Tally tally = tally(arena);
+        return String.format("%d correct, %d missing, %d misoriented",
+                tally.correct, tally.missing, tally.misoriented);
     }
 
     @Override
@@ -238,13 +255,18 @@ public final class StairsHalvesScenario extends TestScenario {
 
     private static StaticSchematic schematic() {
         int width = (FACINGS.length - 1) * SPACING + 1;
-        int depth = (HALVES.length - 1) * SPACING + 1;
+        int depth = (HALVES.length - 1) * SPACING + 2;
         BlockState air = Blocks.AIR.defaultBlockState();
+        BlockState stone = Blocks.STONE.defaultBlockState();
         BlockState[][][] states = new BlockState[width][depth][1];
         for (int x = 0; x < width; x++) {
             for (int z = 0; z < depth; z++) {
                 states[x][z][0] = air;
             }
+        }
+        int topRowZ = (HALVES.length - 1) * SPACING;
+        for (int i = 0; i < FACINGS.length; i++) {
+            states[i * SPACING + FACINGS[i].getStepX()][topRowZ + FACINGS[i].getStepZ()][0] = stone;
         }
         for (int halfIndex = 0; halfIndex < HALVES.length; halfIndex++) {
             for (int facingIndex = 0; facingIndex < FACINGS.length; facingIndex++) {

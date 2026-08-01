@@ -17,6 +17,8 @@
 
 package baritone.testing;
 
+import baritone.api.event.events.PathEvent;
+
 import java.util.Collections;
 import java.util.Map;
 
@@ -90,6 +92,24 @@ public abstract class TestScenario {
      * finish. Not returning a verdict by {@link #tickBudget} is a timeout.
      */
     public abstract Verdict poll(TestArena arena, int elapsedTicks);
+
+    /**
+     * Observes pathfinder state transitions while this scenario is running. Scenarios normally
+     * judge world state, but a regression about redundant path searches needs the calculation
+     * starts themselves as its observable.
+     */
+    public void onPathEvent(PathEvent event) {}
+
+    /**
+     * A concise, monotonically useful measure of work completed, or {@code null} when this
+     * scenario has no safe generic stall measure.
+     * <p>
+     * The harness uses a changed marker as evidence of progress. A scenario that keeps returning
+     * the same marker for too long fails early instead of consuming its whole tick budget.
+     */
+    public String progressMarker(TestArena arena) {
+        return null;
+    }
 
     /**
      * Called once the scenario is over however it ended, before the arena is abandoned. The harness

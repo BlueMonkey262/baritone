@@ -431,5 +431,29 @@ last tick the harness ran.
   that the restock process take control at some point, which the pre-build indexing trip satisfies
   whether or not the builder ever runs short — it passed at `t=0s`. It now requires a trip taken
   after at least one block is placed.
+- **Restock-box registrations are harness state, not arena terrain.** They persist in world data
+  across scenarios and even across runs, so inheriting one makes box-touching tests order-dependent.
+  `TestingBehavior` clears every registration before staging and after teardown; a scenario must
+  register every box it expects to use itself.
 - Scenario timeouts are generous on purpose. A budget tight enough to catch a slow run is tight
   enough to fire on a chunk load, and a suite that cries wolf gets ignored.
+
+---
+
+## 8. Open fork issues
+
+### Shelter retreat has no target-distance bound
+
+Status: **reproduced in the live session on 2026-07-31; not fixed.**
+
+With `shelterOnAttack=true`, a player clearing around `(-367..-368, 63..67, 26..31)` was hit and
+`ShelterProcess` selected the registered box at `BetterBlockPos{x=-314,y=63,z=208}` from
+`(-362, 63, 26)`. The target is about 188 blocks away (`dx=48`, `dz=182`): the log said
+`Under attack; retreating to the box ...` at 15:57:03 and again at 16:09:11. Breaking was allowed,
+so the retreat tunnelled through unrelated trial-chamber terrain roughly 60 blocks from the work.
+
+`shelterBedSearchRadius` does not constrain this walk; it applies only after reaching a box and
+searching for a bed. `ShelterProcess#nearestBox` needs a bounded retreat policy that declines a
+far box rather than treating it as shelter. The default must remain upstream-equivalent (shelter
+disabled) if a new setting is needed. `shelter-retreat-distance` is the pending failing harness
+scenario; do not change retreat behavior until it reproduces this safely in the arena.

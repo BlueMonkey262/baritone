@@ -271,6 +271,15 @@ public final class ShelterProcess extends BaritoneProcessHelper implements IShel
         return true;
     }
 
+    /**
+     * The box selected for the current retreat, or {@code null} while sheltering is idle. This is
+     * exposed for the live-test harness to assert the selection policy before pathing can replace
+     * its goal after a calculation failure.
+     */
+    public BetterBlockPos getRallyBox() {
+        return this.rallyBox;
+    }
+
     @Override
     public PathingCommand onTick(boolean calcFailed, boolean isSafeToCancel) {
         if (this.state == State.IDLE) {

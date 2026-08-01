@@ -37,14 +37,14 @@ import java.util.Map;
  * <p>
  * Horizontal observers exercise the same stand-on-the-correct-side machinery as stairs, while the
  * up- and down-facing observers also require the builder to choose a useful vertical angle. The
- * up-facing target is raised so it can be aimed at from the floor; the down-facing target has an
- * adjacent ledge so it can be aimed at from above.
+ * up-facing target uses the floor below it; the down-facing target has an adjacent ledge so it can
+ * be aimed at from above.
  */
 public final class ObserverBuildScenario extends TestScenario {
 
     private static final int BUILD_X = 6;
     private static final int SPACING = 3;
-    private static final int UP_TARGET_Y = 3;
+    private static final int UP_TARGET_Y = 0;
     private static final int DOWN_TARGET_Y = 0;
     private static final int SUPPORT_Z = -1;
 
@@ -87,14 +87,11 @@ public final class ObserverBuildScenario extends TestScenario {
     public void stage(TestArena arena) {
         arena.fill(-4, -3, -12, 24, -1, 12, "minecraft:stone");
 
-        // The side supports are outside the schematic's z=0 slice. The raised UP target is seen
-        // steeply from the floor; the ledge above the DOWN target gives the player a steep view
-        // downward while leaving the target itself clear.
-        int upX = targetX(4);
+        // The side support is outside the schematic's z=0 slice. The ledge above the DOWN target
+        // is declared in the schematic too, so it remains in place for the placement.
         int downX = targetX(5);
-        arena.setBlock(upX, UP_TARGET_Y, SUPPORT_Z, "minecraft:stone");
         arena.setBlock(downX, DOWN_TARGET_Y, SUPPORT_Z, "minecraft:stone");
-        arena.setBlock(downX, 1, 0, "minecraft:stone");
+        arena.setBlock(downX, DOWN_TARGET_Y + 1, 0, "minecraft:stone");
 
         arena.command("clear @s");
         arena.command("give @s minecraft:observer 64");
@@ -104,9 +101,8 @@ public final class ObserverBuildScenario extends TestScenario {
     @Override
     public boolean stagingComplete(TestArena arena) {
         if (!arena.stateAt(0, -1, 0).is(Blocks.STONE)
-                || !arena.stateAt(targetX(4), UP_TARGET_Y, SUPPORT_Z).is(Blocks.STONE)
                 || !arena.stateAt(targetX(5), DOWN_TARGET_Y, SUPPORT_Z).is(Blocks.STONE)
-                || !arena.stateAt(targetX(5), 1, 0).is(Blocks.STONE)) {
+                || !arena.stateAt(targetX(5), DOWN_TARGET_Y + 1, 0).is(Blocks.STONE)) {
             return false;
         }
         for (int i = 0; i < FACINGS.length; i++) {
@@ -121,8 +117,7 @@ public final class ObserverBuildScenario extends TestScenario {
     public void start(TestArena arena) {
         BetterBlockPos origin = arena.at(BUILD_X, 0, 0);
         arena.note("building %d observers at %s with facings %s", FACINGS.length, origin, facingList());
-        arena.note("up-facing target is raised to y+%d; down-facing target has an adjacent y+1 ledge",
-                UP_TARGET_Y);
+        arena.note("up-facing target uses the floor below it; down-facing target has an adjacent y+1 ledge");
         arena.baritone().getBuilderProcess().build(
                 "harness-" + name(),
                 schematic(),
@@ -171,6 +166,13 @@ public final class ObserverBuildScenario extends TestScenario {
                     elapsedTicks / 20, tally.correct, tally.missing, tally.misoriented);
         }
         return null;
+    }
+
+    @Override
+    public String progressMarker(TestArena arena) {
+        Tally tally = tally(arena);
+        return String.format("%d correct, %d missing, %d misoriented",
+                tally.correct, tally.missing, tally.misoriented);
     }
 
     @Override
@@ -226,12 +228,14 @@ public final class ObserverBuildScenario extends TestScenario {
         int width = targetX(FACINGS.length - 1) - BUILD_X + 1;
         BlockState air = Blocks.AIR.defaultBlockState();
         // StaticSchematic stores states as [x][z][y], not [x][y][z].
-        BlockState[][][] states = new BlockState[width][1][UP_TARGET_Y + 1];
+        int height = Math.max(UP_TARGET_Y, DOWN_TARGET_Y + 1) + 1;
+        BlockState[][][] states = new BlockState[width][1][height];
         for (int x = 0; x < states.length; x++) {
             for (int y = 0; y < states[x][0].length; y++) {
                 states[x][0][y] = air;
             }
         }
+        states[targetX(5) - BUILD_X][0][DOWN_TARGET_Y + 1] = Blocks.STONE.defaultBlockState();
         for (int i = 0; i < FACINGS.length; i++) {
             states[i * SPACING][0][targetY(FACINGS[i])] = Blocks.OBSERVER.defaultBlockState()
                     .setValue(BlockStateProperties.FACING, FACINGS[i]);

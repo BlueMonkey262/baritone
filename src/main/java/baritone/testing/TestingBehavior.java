@@ -19,7 +19,10 @@ package baritone.testing;
 
 import baritone.Baritone;
 import baritone.api.Settings;
+import baritone.api.cache.IRestockBox;
+import baritone.api.cache.IWorldData;
 import baritone.api.event.events.PacketEvent;
+import baritone.api.event.events.PathEvent;
 import baritone.api.event.events.TickEvent;
 import baritone.api.event.events.type.EventState;
 import baritone.api.utils.BetterBlockPos;
@@ -32,7 +35,9 @@ import baritone.testing.scenario.ObserverBuildScenario;
 import baritone.testing.scenario.PathingCourseScenario;
 import baritone.testing.scenario.RestockFromBoxScenario;
 import baritone.testing.scenario.SchematicBuildScenario;
+import baritone.testing.scenario.ShelterRetreatDistanceScenario;
 import baritone.testing.scenario.StairsHalvesScenario;
+import baritone.testing.scenario.UnreachableBuildTargetScenario;
 import baritone.testing.scenario.WaterDetourScenario;
 import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.world.level.GameType;
@@ -112,6 +117,10 @@ public final class TestingBehavior extends Behavior implements Helper {
         register(LogsAxesScenario::new);
         register(ObserverBuildScenario::new);
         register(RestockFromBoxScenario::new);
+        // These deliberately reproduce open defects and must not make #testing all fail until the
+        // corresponding behavior fixes land.
+        registerUncurated(ShelterRetreatDistanceScenario::new);
+        registerUncurated(UnreachableBuildTargetScenario::new);
         for (int seed = 1; seed <= FUZZ_COUNT; seed++) {
             final int captured = seed;
             registerUncurated(() -> new FuzzPathingScenario(captured));
@@ -147,6 +156,9 @@ public final class TestingBehavior extends Behavior implements Helper {
     /** Enough rejections to diagnose the problem, few enough not to bury the report. */
     private static final int MAX_RECORDED_REJECTIONS = 8;
 
+    /** A build that makes no observable progress for this long is a useful failure, not a timeout. */
+    private static final int STALL_TIMEOUT_TICKS = 20 * 30;
+
     private State state = State.IDLE;
     private final List<String> rejectedCommands = new ArrayList<>();
     private final List<String> queue = new ArrayList<>();
@@ -160,6 +172,10 @@ public final class TestingBehavior extends Behavior implements Helper {
     private int phaseTicks;
     private int runTicks;
     private int ticksInWorld;
+    /** Last client-tick event handled by this behavior; guards against duplicate dispatch. */
+    private int lastHandledTick = Integer.MIN_VALUE;
+    private String lastProgressMarker;
+    private int progressMarkerSince;
     private boolean autoQuit;
     private int shutdownTicks;
     private int rejectionMark;
@@ -191,6 +207,13 @@ public final class TestingBehavior extends Behavior implements Helper {
 
     public boolean isRunning() {
         return this.state != State.IDLE;
+    }
+
+    @Override
+    public void onPathEvent(PathEvent event) {
+        if (this.state == State.RUNNING && this.scenario != null) {
+            this.scenario.onPathEvent(event);
+        }
     }
 
     public String currentScenarioName() {
@@ -247,6 +270,12 @@ public final class TestingBehavior extends Behavior implements Helper {
 
     @Override
     public void onTick(TickEvent event) {
+        // The harness measures its budgets in client ticks. Keep accounting idempotent should a
+        // caller ever dispatch the same PRE event twice.
+        if (event.getState() != EventState.PRE || event.getCount() == this.lastHandledTick) {
+            return;
+        }
+        this.lastHandledTick = event.getCount();
         // Before every other check, including the player-null guard below. Shutting down means
         // leaving the world, which makes the player null and the tick type OUT -- so a shutdown
         // driven from inside those guards stops advancing at exactly the moment it needs to run,
@@ -405,8 +434,12 @@ public final class TestingBehavior extends Behavior implements Helper {
         ));
         this.runTicks = 0;
         this.phaseTicks = 0;
+        this.lastProgressMarker = null;
+        this.progressMarkerSince = 0;
         this.rejectionMark = this.rejectedCommands.size();
         this.state = State.STAGING;
+
+        clearRestockBoxRegistrations();
 
         logDirect(String.format("Testing [%d/%d]: %s -- %s",
                 this.scenarioIndex + 1, this.queue.size(), name, this.scenario.description()));
@@ -509,6 +542,29 @@ public final class TestingBehavior extends Behavior implements Helper {
                     verdict.message);
             return;
         }
+        String progress = this.scenario.progressMarker(this.arena);
+        if (progress != null) {
+            if (!progress.equals(this.lastProgressMarker)) {
+                this.lastProgressMarker = progress;
+                this.progressMarkerSince = this.runTicks;
+            } else if (this.runTicks - this.progressMarkerSince >= STALL_TIMEOUT_TICKS) {
+                String diagnosis;
+                try {
+                    // Keep the scenario's block-by-block detail: it is what turns "stalled"
+                    // into an actionable statement of the missing position and wanted state.
+                    diagnosis = this.scenario.timeoutDiagnosis(this.arena);
+                } catch (RuntimeException e) {
+                    diagnosis = "diagnosis threw: " + e;
+                }
+                finishScenario(ScenarioResult.Status.FAIL, String.format(
+                        "stalled at t=%.1fs after %.1fs with no progress: %s",
+                        this.progressMarkerSince / 20.0,
+                        (this.runTicks - this.progressMarkerSince) / 20.0,
+                        diagnosis
+                ));
+                return;
+            }
+        }
         if (this.runTicks >= this.scenario.tickBudget()) {
             String diagnosis;
             try {
@@ -533,6 +589,7 @@ public final class TestingBehavior extends Behavior implements Helper {
         } catch (RuntimeException e) {
             this.arena.note("teardown threw: " + e);
         }
+        clearRestockBoxRegistrations();
         restoreSettings();
 
         List<String> notes = this.arena == null ? new ArrayList<>() : this.arena.notes();
@@ -557,6 +614,20 @@ public final class TestingBehavior extends Behavior implements Helper {
         this.scenarioIndex++;
         this.state = State.TEARDOWN;
         this.phaseTicks = 0;
+    }
+
+    /**
+     * Registered boxes persist in world data, unlike the command-staged arena. Clear them on both
+     * sides of every scenario so a restock fixture cannot silently become input to another test.
+     */
+    private void clearRestockBoxRegistrations() {
+        IWorldData world = this.baritone.getWorldProvider().getCurrentWorld();
+        if (world == null) {
+            return;
+        }
+        for (IRestockBox box : new ArrayList<>(world.getRestockBoxes().getAllBoxes())) {
+            world.getRestockBoxes().removeBox(box.getLocation());
+        }
     }
 
     private void tickTeardown() {

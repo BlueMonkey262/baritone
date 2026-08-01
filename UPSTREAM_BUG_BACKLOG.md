@@ -21,6 +21,46 @@ Every completed task must include: the baseline commit, loader and mods, precise
 - `c02114ad` (2026-06-19, `BlockOptionalMeta` game-registry loot resolution) is a candidate for the cluster of modded `#mine` registry failures; do not mark those fixed until tested with the reported loaders.
 - Historical source changes plausibly cover #4319 (`2e32c63b`, `6a6d0642`) and #3142 (`3e3312f0`). Those are verification tasks, not presumed new fixes.
 
+## Local upstream candidates — 2026-07-31
+
+### U-local-01 — builder tight-replans an unreachable placement goal
+
+- Status: `[x] reproduced by `unreachable-build-target` (2026-07-31); behavior fix pending`
+- Evidence: from `BetterBlockPos{x=-488,y=63,z=-14}`, the builder repeatedly searched toward
+  `GoalComposite[GoalPlace{x=-488,y=64,z=-19}]`; each search considered 122,694 movements in about
+  40ms, ended inside loaded chunks, and its first movement returned `UNREACHABLE`. The identical
+  search repeated roughly 15 times per second with no world-state change, flooding chat.
+- Measurement: `unreachable-build-target` started 20 path searches in 1.0s for the identical
+  sealed target, failing at 60 ticks. The result was identical under both
+  `FORCE_REVALIDATE_GOAL_AND_PATH` and `REVALIDATE_GOAL_AND_PATH`; revalidation mode is excluded
+  as the cause of this loop.
+- Scope: the failed-first-movement recovery path after an unreachable movement/search result, which
+  immediately starts an identical search despite no world-state change.
+- Done when: an unreachable target reaches a bounded, observable builder result without repeated
+  identical replans, while reachable builds still complete.
+
+### U-local-02 — unsatisfiable block state provides no user-visible explanation
+
+- Status: `[ ] reproduced in the live session; logging behavior not yet designed`
+- Evidence: an up-facing observer had 59 observers available, but twenty-five consecutive attempts
+  all simulated `observer[facing=west]` for requested `observer[facing=up]`; the builder silently
+  retried and the user reasonably inferred a material shortage. The current harness records the
+  world-state failure but intentionally does not scrape chat, so its scenario cannot by itself
+  assert the eventual `logDirect` wording.
+- Orientation diagnostic, same target `BetterBlockPos{x=5191,y=-50,z=-5}`: this is **not** gated
+  out before `acceptableFacings`. `placementGoal` finds the floor at y=-51 as its only support,
+  `acceptableFacings` returns `[up]`, and the current `GoalPlaceOriented` expands that to the
+  unreachable standing region `y <= -53`. Separately, `possibleToPlace` reaches all five floor
+  hit points, but their 26–35 degree pitches leave the horizontal look component dominant:
+  `getNearestLookingDirection()` returns EAST and observer placement inverts it to WEST. Producing
+  `facing=up` needs a downward pitch above 45 degrees, which requires standing within roughly 1.6
+  blocks of the hit point; the observed positions are about 2.8 blocks away.
+- Scope: bounded, throttled user-facing explanation for a position whose candidate placements
+  repeatedly disagree with the requested block state. Reuse the diagnostic's throttling shape;
+  do not turn a recoverable retry into an immediate pause without a mechanism.
+- Done when: a sustained unsatisfiable placement remains safely retryable but reports the wanted
+  state and the repeatedly simulated state at a bounded cadence.
+
 ## P0 — crashes, command-wide failure, infinite actions, or player-loss risk
 
 ## T01 — #5064: bridge block is placed/broken forever
