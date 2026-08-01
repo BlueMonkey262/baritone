@@ -689,8 +689,14 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         int from = exec.getPosition();
         int to = Math.min(movements.size(), from + PATH_LOOKAHEAD_MOVEMENTS);
         for (int i = from; i < to; i++) {
-            if (Arrays.asList(((Movement) movements.get(i)).toBreakAll()).contains(pos)) {
-                return true;
+            // Scanned directly rather than through Arrays.asList(...).contains(...): this is called
+            // once per candidate position by the per-tick placement scan, which is hundreds of
+            // positions a tick, and each call walked up to ten movements. The wrapper bought
+            // nothing and allocated on every one of them.
+            for (BlockPos toBreak : ((Movement) movements.get(i)).toBreakAll()) {
+                if (pos.equals(toBreak)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -1486,8 +1492,13 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         // runs through the build -- which looks to the caller like "nothing is placeable", skips
         // the restock hook (it needs a non-empty missing map) and wrongly pauses the whole build.
         // The re-placement loop this guards against happens in searchForPlacables, not here.
+        // Membership set rather than List#contains: the two lookups below run once per placeable
+        // position, over the same list, so a linear scan makes this quadratic in the size of the
+        // build. A schematic with a few thousand placeable positions turns one assemble() into
+        // millions of BlockPos comparisons.
+        Set<BetterBlockPos> placeableSet = new HashSet<>(placeable);
         placeable.forEach(pos -> {
-            if (!placeable.contains(pos.below()) && !placeable.contains(pos.below(2))) {
+            if (!placeableSet.contains(pos.below()) && !placeableSet.contains(pos.below(2))) {
                 Goal goal = placementGoal(pos, bcc);
                 if (goal != null) {
                     toPlace.add(goal);

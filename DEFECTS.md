@@ -396,10 +396,34 @@ scenario.
 
 ## Performance observations
 
-- `BuilderProcess.assemble` calls `placeable.contains(pos.below())` and
-  `placeable.contains(pos.below(2))` inside a loop over `placeable` at `BuilderProcess.java:1480-1485`.
-  These are repeated linear scans and can make each assembly O(n²) in the number of placeable
-  positions.
-- `BuilderProcess.pathNeedsOpen` creates an `Arrays.asList(...)` wrapper for each movement checked
-  at `BuilderProcess.java:679-684`, and the method is queried repeatedly from the per-tick nearby
-  placement scan. This is a repeated allocation/scan path worth measuring.
+Both of the below were **applied 2026-08-01**. Neither produced a measurable change in the curated
+suite (208s -> 214s, inside noise), and that is the honest result: every build scenario in the suite
+is tiny -- a 5x5x3 ring, six observers -- so `placeable` holds a handful of positions and the
+quadratic term never bites. The changes are correct and strictly cheaper; this suite simply cannot
+show it.
+
+- **`assemble` was quadratic in the size of the build.** `placeable.contains(pos.below())` and
+  `.contains(pos.below(2))` ran once per placeable position over the same `ArrayList`, so a
+  schematic with a few thousand placeable positions turned one `assemble()` into millions of
+  `BlockPos` comparisons. Now a `HashSet` built once per call
+  (`BuilderProcess.java:1480-1486`).
+
+  A hazard worth recording: `BetterBlockPos.hashCode()` is *deliberately* different from
+  `BlockPos.hashCode()` (see the comment in `BetterBlockPos`), so a set of `BetterBlockPos` queried
+  with a plain `BlockPos` key silently misses every time. That would not have failed loudly -- it
+  would have quietly disabled the guard and reintroduced the break/place loop it exists to prevent.
+  It is safe here only because `BetterBlockPos` overrides `below()` and `below(int)` to return
+  `BetterBlockPos`.
+
+- **`pathNeedsOpen` allocated a list wrapper per movement.** It is called once per candidate
+  position by the per-tick placement scan -- hundreds of positions a tick -- and each call wrapped
+  up to ten `toBreakAll()` arrays in `Arrays.asList` purely to call `contains`. Now scanned
+  directly (`BuilderProcess.java:692-701`).
+
+### The measurement gap this exposed
+
+Performance is a stated goal of this fork, but **no scenario in the suite would detect a
+build-scaling regression.** The suite proves correctness on small builds and says nothing about
+cost on large ones. A scenario that builds something big enough for the quadratic terms to matter --
+and asserts on tick count, which the harness already records -- is the missing instrument. Until it
+exists, "measure before and after" can only catch regressions that happen to slow down small builds.
