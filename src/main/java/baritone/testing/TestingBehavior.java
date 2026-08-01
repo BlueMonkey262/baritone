@@ -28,6 +28,7 @@ import baritone.api.event.events.type.EventState;
 import baritone.api.utils.BetterBlockPos;
 import baritone.api.utils.Helper;
 import baritone.behavior.Behavior;
+import baritone.testing.scenario.AddBoxWrongOpenMenuScenario;
 import baritone.testing.scenario.DirectionalBuildScenario;
 import baritone.testing.scenario.FuzzPathingScenario;
 import baritone.testing.scenario.HoppersFacingScenario;
@@ -36,7 +37,9 @@ import baritone.testing.scenario.ObserverBuildScenario;
 import baritone.testing.scenario.PathingCourseScenario;
 import baritone.testing.scenario.PistonObserverPairScenario;
 import baritone.testing.scenario.RepeatersDelaysScenario;
+import baritone.testing.scenario.RestockEmptyIndexedBoxScenario;
 import baritone.testing.scenario.RestockFromBoxScenario;
+import baritone.testing.scenario.RestockMultipleBoxesScenario;
 import baritone.testing.scenario.SchematicBuildScenario;
 import baritone.testing.scenario.ShelterRetreatDistanceScenario;
 import baritone.testing.scenario.StairsHalvesScenario;
@@ -123,6 +126,9 @@ public final class TestingBehavior extends Behavior implements Helper {
         register(LogsAxesScenario::new);
         register(ObserverBuildScenario::new);
         register(RestockFromBoxScenario::new);
+        registerUncurated(RestockMultipleBoxesScenario::new);
+        registerUncurated(RestockEmptyIndexedBoxScenario::new);
+        registerUncurated(AddBoxWrongOpenMenuScenario::new);
         // Uncurated because it cannot yet fail for the right reason: its facing is horizontal and
         // its target stands on a floor, so Baritone can satisfy either orientation rule and a pass
         // proves nothing about them. Promote it once it has a vertical pair.
