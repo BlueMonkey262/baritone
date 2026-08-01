@@ -83,6 +83,8 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private static final long MAX_PALETTE_SCAN_VOLUME = 8_000_000L;
     /** Builder ticks between "short of materials" reports. */
     private static final int MISSING_LOG_INTERVAL_TICKS = 100;
+    /** How long an unreachable placement target stays out of the goal set. */
+    private static final int UNREACHABLE_RETRY_TICKS = 100;
 
     /**
      * Properties the player picks when placing a block, by where they stand and which face they
@@ -216,11 +218,19 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * Builder tick of the last "short of materials" report, so the throttled log below doesn't spam.
      */
     private int lastMissingLogTick = Integer.MIN_VALUE;
+    /** Builder tick of the last unreachable-target report. */
+    private int lastUnreachableLogTick = Integer.MIN_VALUE;
     /**
      * The destination selected by the last live path, and how many times in a row that destination
      * has changed. The assembled goal is a set of candidates, not the destination A* chose.
      */
     private BetterBlockPos lastSelectedDestination;
+    /** The placement target represented by the last live path, if it was a placement path. */
+    private BetterBlockPos lastActivePlacementTarget;
+    /** The assembled goal that produced {@link #lastActivePlacementTarget}. */
+    private Goal lastActivePathGoal;
+    /** The live executor that selected {@link #lastActivePlacementTarget}. */
+    private PathExecutor lastActivePlacementPath;
     /**
      * The candidate set used by the last failed calculation, so repeated failures can be counted
      * while there is no path whose destination we can observe.
@@ -244,6 +254,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
      * they become eligible again.
      */
     private final Map<Long, Integer> churnBlacklist = new HashMap<>();
+    /**
+     * Positions whose placement path just failed at execution time, mapped to their retry tick.
+     * Kept separate from {@link #churnBlacklist}: a path failure is not a break/place loop.
+     */
+    private final Map<Long, Integer> unreachableBlacklist = new HashMap<>();
     /**
      * When we first started trying to reach a facing-specific stand position for a block, so we can
      * give up on it if the spot turns out to be unreachable instead of stalling the build.
@@ -316,11 +331,16 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         this.clearingOnly = isPureAir(schematic)
                 && !Baritone.settings().buildSubstitutes.value.containsKey(Blocks.AIR);
         this.lastSelectedDestination = null;
+        this.lastActivePlacementTarget = null;
+        this.lastActivePathGoal = null;
+        this.lastActivePlacementPath = null;
         this.lastFailedGoal = null;
+        this.lastUnreachableLogTick = Integer.MIN_VALUE;
         this.consecutiveReroutes = 0;
         this.rerouteCommitTicks = 0;
         this.churn.clear();
         this.churnBlacklist.clear();
+        this.unreachableBlacklist.clear();
         this.orientFirstSeen.clear();
         this.orientSkippedUntil.clear();
         this.layer = Baritone.settings().startAtLayer.value;
@@ -659,6 +679,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private PathingCommand forceRerouteAfterChurn(boolean calcFailed, boolean isSafeToCancel, int recursions) {
         incorrectPositions = null;
         lastSelectedDestination = null;
+        clearActivePathObservation();
         lastFailedGoal = null;
         consecutiveReroutes = 0;
         rerouteCommitTicks = 0;
@@ -846,6 +867,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         approxPlaceable = approxPlaceable(36);
         builderTick++;
         churnBlacklist.entrySet().removeIf(entry -> builderTick >= entry.getValue());
+        unreachableBlacklist.entrySet().removeIf(entry -> builderTick >= entry.getValue());
         if (baritone.getInputOverrideHandler().isInputForcedDown(Input.CLICK_LEFT)) {
             ticks = 5;
         } else {
@@ -1053,7 +1075,7 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                     layer++;
                     return onTick(calcFailed, isSafeToCancel, recursions + 1);
                 }
-                if (hasOrientationSkipped()) {
+                if (!onlyUnreachablePlacementsRemain() && (hasUnreachableBlacklist() || hasOrientationSkipped())) {
                     // Keep ticking while the timed-out position is out of the goal set. A goal at
                     // our feet lets the retry timer advance without pretending that the position
                     // is placeable or pausing the whole build.
@@ -1171,6 +1193,22 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
 
     private PathingCommand commitAwarePathingCommand(Goal goal, BuilderCalculationContext bcc, boolean calcFailed) {
         int maxReroutes = Baritone.settings().builderMaxReroutes.value;
+        BetterBlockPos selected = selectedDestination();
+        PathExecutor currentPath = baritone.getPathingBehavior().getCurrent();
+        if (currentPath != null) {
+            lastActivePlacementPath = currentPath;
+        }
+        if (selected == null && lastActivePlacementPath != null && lastActivePlacementPath.failed()
+                && noteUnreachablePlacement(goal)) {
+            // The path executor has already started a replacement calculation after cancelling
+            // the unreachable movement. Cancel that calculation now; the next tick will assemble
+            // the remaining work with this target temporarily omitted.
+            return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
+        }
+        if (selected != null && (!selected.equals(lastSelectedDestination) || lastActivePathGoal == null)) {
+            lastActivePlacementTarget = placementTargetFor(goal, selected);
+            lastActivePathGoal = goal;
+        }
         if (maxReroutes <= 0) {
             return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
         }
@@ -1189,7 +1227,6 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             rerouteCommitTicks = 0;
         }
 
-        BetterBlockPos selected = selectedDestination();
         if (selected != null) {
             noteActiveOrientation(goal, selected);
             lastFailedGoal = null;
@@ -1209,6 +1246,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
             }
         }
         if (consecutiveReroutes > maxReroutes) {
+            if (selected == null && calcFailed && deferUnreachablePlacements(goal)) {
+                return new PathingCommand(null, PathingCommandType.CANCEL_AND_SET_GOAL);
+            }
             rerouteCommitTicks = Baritone.settings().builderRerouteCommitTicks.value;
             consecutiveReroutes = 0;
             logDebug("Builder kept selecting or failing to reach a destination " + maxReroutes + " times in a row; committing for "
@@ -1220,6 +1260,153 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         // unreachable-build-target measures 20 identical searches per second under both FORCE
         // and ordinary revalidation. The revalidation layer is excluded; that scenario holds it.
         return new PathingCommandContext(goal, PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH, bcc);
+    }
+
+    /**
+     * Finds the schematic block represented by the destination selected from a composite placement
+     * goal. Break goals deliberately return null: their execution has different failure semantics
+     * and must not enter the placement cooldown.
+     */
+    private BetterBlockPos placementTargetFor(Goal goal, BlockPos destination) {
+        if (goal instanceof GoalPlaceOriented) {
+            return goal.isInGoal(destination.getX(), destination.getY(), destination.getZ())
+                    ? BetterBlockPos.from(((GoalPlaceOriented) goal).getGoalPos())
+                    : null;
+        }
+        if (goal instanceof GoalPlace) {
+            return goal.isInGoal(destination.getX(), destination.getY(), destination.getZ())
+                    ? BetterBlockPos.from(((GoalPlace) goal).getGoalPos().below())
+                    : null;
+        }
+        if (goal instanceof GoalAdjacent) {
+            return goal.isInGoal(destination.getX(), destination.getY(), destination.getZ())
+                    ? BetterBlockPos.from(((GoalAdjacent) goal).getGoalPos())
+                    : null;
+        }
+        if (goal instanceof GoalComposite) {
+            for (Goal candidate : ((GoalComposite) goal).goals()) {
+                BetterBlockPos target = placementTargetFor(candidate, destination);
+                if (target != null) {
+                    return target;
+                }
+            }
+        }
+        if (goal instanceof JankyGoalComposite) {
+            BetterBlockPos target = placementTargetFor(((JankyGoalComposite) goal).primary, destination);
+            return target != null ? target : placementTargetFor(((JankyGoalComposite) goal).fallback, destination);
+        }
+        return null;
+    }
+
+    private void collectPlacementTargets(Goal goal, Set<BetterBlockPos> targets) {
+        if (goal instanceof GoalPlaceOriented) {
+            targets.add(BetterBlockPos.from(((GoalPlaceOriented) goal).getGoalPos()));
+            return;
+        }
+        if (goal instanceof GoalPlace) {
+            targets.add(BetterBlockPos.from(((GoalPlace) goal).getGoalPos().below()));
+            return;
+        }
+        if (goal instanceof GoalAdjacent) {
+            targets.add(BetterBlockPos.from(((GoalAdjacent) goal).getGoalPos()));
+            return;
+        }
+        if (goal instanceof GoalComposite) {
+            for (Goal candidate : ((GoalComposite) goal).goals()) {
+                collectPlacementTargets(candidate, targets);
+            }
+        } else if (goal instanceof JankyGoalComposite) {
+            collectPlacementTargets(((JankyGoalComposite) goal).primary, targets);
+            collectPlacementTargets(((JankyGoalComposite) goal).fallback, targets);
+        }
+    }
+
+    private boolean deferUnreachablePlacements(Goal goal) {
+        Set<BetterBlockPos> targets = new HashSet<>();
+        collectPlacementTargets(goal, targets);
+        if (targets.isEmpty()) {
+            return false;
+        }
+        int retryUntil = builderTick + UNREACHABLE_RETRY_TICKS;
+        for (BetterBlockPos target : targets) {
+            unreachableBlacklist.put(BetterBlockPos.longHash(target), retryUntil);
+        }
+        if (lastUnreachableLogTick == Integer.MIN_VALUE
+                || builderTick - lastUnreachableLogTick >= MISSING_LOG_INTERVAL_TICKS) {
+            lastUnreachableLogTick = builderTick;
+            String description = targets.size() == 1
+                    ? targets.iterator().next().toString()
+                    : targets.size() + " build targets";
+            logDirect("Unable to reach " + description + "; skipping for "
+                    + UNREACHABLE_RETRY_TICKS + " ticks");
+        }
+        lastSelectedDestination = null;
+        lastFailedGoal = null;
+        consecutiveReroutes = 0;
+        rerouteCommitTicks = 0;
+        clearActivePathObservation();
+        return true;
+    }
+
+    /**
+     * Converts an execution-time loss of the selected path into a temporary, position-scoped
+     * deferral. A path that reaches its goal is not a failure, even though the executor disappears
+     * before the builder's next tick.
+     */
+    private boolean noteUnreachablePlacement(Goal goal) {
+        if (lastActivePlacementTarget == null || lastActivePathGoal == null) {
+            return false;
+        }
+        if (goal.isInGoal(ctx.playerFeet().getX(), ctx.playerFeet().getY(), ctx.playerFeet().getZ())) {
+            clearActivePathObservation();
+            return false;
+        }
+        if (!lastActivePathGoal.equals(goal)) {
+            clearActivePathObservation();
+            return false;
+        }
+        BetterBlockPos target = lastActivePlacementTarget;
+        return deferUnreachablePlacements(new GoalPlace(target));
+    }
+
+    private void clearActivePathObservation() {
+        lastActivePlacementTarget = null;
+        lastActivePathGoal = null;
+        lastActivePlacementPath = null;
+    }
+
+    private boolean hasUnreachableBlacklist() {
+        return !unreachableBlacklist.isEmpty();
+    }
+
+    /**
+     * Whether every remaining incorrect position is in the placement cooldown. This deliberately
+     * does not look merely at whether the blacklist is non-empty: one deferred target must never
+     * stop the builder from continuing with unrelated work.
+     */
+    private boolean onlyUnreachablePlacementsRemain() {
+        return !incorrectPositions.isEmpty()
+                && incorrectPositions.stream().allMatch(this::isUnreachableBlacklisted);
+    }
+
+    private boolean isUnreachableBlacklisted(BlockPos pos) {
+        long hash = BetterBlockPos.longHash(pos.getX(), pos.getY(), pos.getZ());
+        Integer until = unreachableBlacklist.get(hash);
+        if (until == null) {
+            return false;
+        }
+        if (builderTick >= until) {
+            unreachableBlacklist.remove(hash);
+            return false;
+        }
+        return true;
+    }
+
+    private void clearUnreachableState(BetterBlockPos pos) {
+        unreachableBlacklist.remove(BetterBlockPos.longHash(pos));
+        if (pos.equals(lastActivePlacementTarget)) {
+            clearActivePathObservation();
+        }
     }
 
     /**
@@ -1375,6 +1562,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                         if (valid(bcc.bsi.get0(x, y, z), desired, false)) {
                             incorrectPositions.remove(pos);
                             observedCompleted.add(BetterBlockPos.longHash(pos));
+                            if (!unreachableBlacklist.isEmpty()) {
+                                clearUnreachableState(pos);
+                            }
                             clearOrientationState(pos);
                         } else {
                             incorrectPositions.add(pos);
@@ -1412,7 +1602,11 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                         // we can directly observe this block, it is in render distance
                         if (valid(bcc.bsi.get0(blockX, blockY, blockZ), schematic.desiredState(x, y, z, current, this.approxPlaceable), false)) {
                             observedCompleted.add(BetterBlockPos.longHash(blockX, blockY, blockZ));
-                            clearOrientationState(new BetterBlockPos(blockX, blockY, blockZ));
+                            BetterBlockPos pos = new BetterBlockPos(blockX, blockY, blockZ);
+                            if (!unreachableBlacklist.isEmpty()) {
+                                clearUnreachableState(pos);
+                            }
+                            clearOrientationState(pos);
                         } else {
                             incorrectPositions.add(new BetterBlockPos(blockX, blockY, blockZ));
                             observedCompleted.remove(BetterBlockPos.longHash(blockX, blockY, blockZ));
@@ -1623,6 +1817,9 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     }
 
     private Goal placementGoal(BlockPos pos, BuilderCalculationContext bcc) {
+        if (!unreachableBlacklist.isEmpty() && isUnreachableBlacklisted(pos)) {
+            return null;
+        }
         if (!(ctx.world().getBlockState(pos).getBlock() instanceof AirBlock)) {  // TODO can this even happen?
             return new GoalPlace(pos);
         }
@@ -2064,9 +2261,12 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         clearRestockGiveUps();
         missingMaterials = new HashMap<>();
         lastSelectedDestination = null;
+        clearActivePathObservation();
         lastFailedGoal = null;
         consecutiveReroutes = 0;
         rerouteCommitTicks = 0;
+        unreachableBlacklist.clear();
+        lastUnreachableLogTick = Integer.MIN_VALUE;
         incorrectPositions = null;
         name = null;
         schematic = null;
