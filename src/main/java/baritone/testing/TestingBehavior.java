@@ -42,6 +42,9 @@ import baritone.testing.scenario.ShelterRetreatDistanceScenario;
 import baritone.testing.scenario.StairsHalvesScenario;
 import baritone.testing.scenario.UnreachableBuildTargetScenario;
 import baritone.testing.scenario.WaterDetourScenario;
+import baritone.testing.scenario.gen.PlacementCase;
+import baritone.testing.scenario.gen.PlacementCaseScenario;
+import baritone.testing.scenario.gen.PlacementCatalog;
 import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.world.level.GameType;
 
@@ -133,6 +136,10 @@ public final class TestingBehavior extends Behavior implements Helper {
         for (int seed = 1; seed <= FUZZ_COUNT; seed++) {
             final int captured = seed;
             registerUncurated(() -> new FuzzPathingScenario(captured));
+        }
+        for (PlacementCase placementCase : PlacementCatalog.all()) {
+            final PlacementCase captured = placementCase;
+            registerUncurated(() -> new PlacementCaseScenario(captured));
         }
     }
 
