@@ -36,6 +36,8 @@ import java.util.Map;
  */
 public final class RestockEmptyIndexedBoxScenario extends AbstractBoxBuildScenario {
 
+    // This stale entry is deliberately farther from the build than the unindexed fallback. The
+    // recorded contents must win candidate selection before distance is considered.
     private static final int EMPTY_BOX_X = -4;
     private static final int EMPTY_BOX_Z = 10;
     private static final int STOCKED_BOX_X = 2;
@@ -157,6 +159,9 @@ public final class RestockEmptyIndexedBoxScenario extends AbstractBoxBuildScenar
     }
 
     private static boolean near(TestArena arena, BetterBlockPos position) {
-        return arena.ctx().playerFeet().distSqr(position) <= 16.0;
+        // The interaction goal only has to get us into genuine right-click reach, not onto the
+        // box's exact neighbouring block. Six blocks also leaves room for the floor/path geometry
+        // while staying far short of the other fixture position.
+        return arena.ctx().playerFeet().distSqr(position) <= 36.0;
     }
 }

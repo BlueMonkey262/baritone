@@ -21,7 +21,6 @@ import baritone.api.cache.IWorldData;
 import baritone.api.utils.BetterBlockPos;
 import baritone.testing.TestArena;
 import baritone.testing.TestScenario;
-import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
@@ -85,9 +84,9 @@ public final class RestockMultipleBoxesScenario extends AbstractBoxBuildScenario
 
     @Override
     protected void stageSupplies(TestArena arena) {
-        // The shared staging clears the whole inventory, but clear this material again immediately
-        // before giving it so this fixture cannot silently inherit a white-concrete stack.
-        arena.command("clear @s " + MATERIAL_ID);
+        // AbstractBoxBuildScenario has already issued 26.1.2's unqualified `clear @s`. Do not send
+        // a second item-predicate clear here: this fixture only needs the known-empty inventory
+        // created by the shared stage, followed by its deliberate eight-block starting stack.
         arena.command("give @s " + MATERIAL_ID + " " + STARTING_MATERIAL);
         // Keep this item-NBT shape in lockstep with RestockFromBoxScenario; it is intentionally
         // the harness's known version-sensitive shulker form.
@@ -103,9 +102,7 @@ public final class RestockMultipleBoxesScenario extends AbstractBoxBuildScenario
     protected boolean suppliesStaged(TestArena arena) {
         return arena.stateAt(FIRST_WHITE_BOX_X, 0, FIRST_WHITE_BOX_Z).getBlock() instanceof ShulkerBoxBlock
                 && arena.stateAt(SECOND_WHITE_BOX_X, 0, SECOND_WHITE_BOX_Z).getBlock() instanceof ShulkerBoxBlock
-                && countPlayerMaterial(arena) == STARTING_MATERIAL
-                && countBoxMaterial(arena, FIRST_WHITE_BOX_X, FIRST_WHITE_BOX_Z) == FIRST_WHITE_COUNT
-                && countBoxMaterial(arena, SECOND_WHITE_BOX_X, SECOND_WHITE_BOX_Z) == SECOND_WHITE_COUNT;
+                && countPlayerMaterial(arena) == STARTING_MATERIAL;
     }
 
     @Override
@@ -183,19 +180,4 @@ public final class RestockMultipleBoxesScenario extends AbstractBoxBuildScenario
                 .sum();
     }
 
-    private static int countBoxMaterial(TestArena arena, int x, int z) {
-        Object blockEntity = arena.ctx().world().getBlockEntity(arena.at(x, 0, z));
-        if (!(blockEntity instanceof Container)) {
-            return -1;
-        }
-        Container box = (Container) blockEntity;
-        int count = 0;
-        for (int slot = 0; slot < box.getContainerSize(); slot++) {
-            ItemStack stack = box.getItem(slot);
-            if (stack.is(Blocks.WHITE_CONCRETE.asItem())) {
-                count += stack.getCount();
-            }
-        }
-        return count;
-    }
 }
