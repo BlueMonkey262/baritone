@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A **private fork** of [cabaletta/baritone](https://github.com/cabaletta/baritone) (Minecraft pathfinding bot),
+**Continuo** is a private fork of [cabaletta/baritone](https://github.com/cabaletta/baritone) (Minecraft pathfinding bot),
 branched from upstream `26.1` (Minecraft 26.1.2, Java 25, mojmap via unimined).
 
-Everything this fork adds or changes relative to upstream is documented in **FORK-NOTES.md** — read it before
+Everything Continuo adds or changes relative to upstream is documented in **FORK-NOTES.md** — read it before
 touching `RestockProcess`, `ShelterProcess`, `BuilderProcess`, `BackfillProcess`, `ContainerInteractionBehavior`,
 or `ThreatBehavior`. It records not just what changed but *why*, including invariants that are easy to break.
 
@@ -39,8 +39,8 @@ instances (both are Fabric, mods dir is `<instance>/minecraft/mods/`):
 ```
 
 Match the variant each instance is already running rather than picking one: `26.1.2_copy` uses
-`baritone-standalone-fabric-*.jar`, `26.1.2-creative` uses `baritone-unoptimized-fabric-*.jar`. Delete the old
-`baritone-*-fabric-*.jar` in each mods dir as part of installing — jar names carry the git describe version, so
+`continuo-standalone-fabric-*.jar`, `26.1.2-creative` uses `continuo-unoptimized-fabric-*.jar`. Delete the old
+`continuo-*-fabric-*.jar` in each mods dir as part of installing — jar names carry the git describe version, so
 leaving the previous one behind loads two Baritones. Confirm Minecraft is not running first (see the jar-overwrite
 warning above).
 
@@ -74,7 +74,7 @@ every push; that is everything a machine can check unattended. The in-game suite
 before a release or a risky merge:
 
 ```bash
-python3 scripts/testing/parallel_run.py -n 3 --timeout 1800 --curated --jar dist/baritone-unoptimized-fabric-<version>.jar
+python3 scripts/testing/parallel_run.py -n 3 --timeout 1800 --curated --jar dist/continuo-unoptimized-fabric-<version>.jar
 python3 scripts/testing/diff_baseline.py    # verdict + timing changes vs scripts/testing/baseline.json
 ```
 
@@ -142,11 +142,11 @@ command needs an entry there or it doesn't exist. Argument parsing goes through 
 **Settings.** Every setting is a `public final Setting<T>` field in `api/Settings.java`; the field name *is* the
 in-game name, and the javadoc above it *is* the `#help` text. Serialization (`SettingsUtil`) is reflective over
 those fields, so adding one requires nothing else — but renaming one breaks users' `settings.txt`. New behavior
-in this fork is expected to default to off/upstream-equivalent (`shelterOnAttack`, `shulkerDump`) so the master
+in Continuo is expected to default to off/upstream-equivalent (`shelterOnAttack`, `shulkerDump`) so the master
 switch reproduces upstream exactly.
 
 **Per-world state.** `WorldProvider` / `WorldData` scope caches to server *and dimension* under
-`minecraft/baritone/<server>/<dimension>/` (chunk cache, waypoints, and this fork's `restock/boxes.mp4`).
+`minecraft/baritone/<server>/<dimension>/` (chunk cache, waypoints, and Continuo's `restock/boxes.mp4`).
 Persisted item references use registry keys, not numeric ids, and unresolvable entries are dropped on load rather
 than failing the file.
 

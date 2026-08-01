@@ -1,9 +1,9 @@
-# Roadmap: private fork → Baritone+
+# Roadmap: Continuo
 
 Target end state: a **publicly released mod** with its own identity, versioned releases, and docs
 written for someone who is not the author.
 
-The fork's three goals — autonomy over long jobs, correctness on the things that stall, and
+Continuo's three goals — autonomy over long jobs, correctness on the things that stall, and
 **performance** — are stated in `FORK-NOTES.md`. Performance is a first-class goal as of
 2026-08-01, with two rules: measure before and after, and treat a slowdown as a defect. Phase 2a's
 baseline diff is what makes that enforceable, so it should carry suite wall clock and per-scenario
@@ -224,7 +224,7 @@ the process state machines. Spend coverage effort there before adding placement 
   cabaletta and the upstream contributors.
 - **Do not rename the `baritone.api` package or the mod id.** Other mods compile against
   `baritone.api`, and `src/api` is deliberately not obfuscated so they can. Staying a drop-in
-  replacement is the fork's strongest distribution argument. Brand at the README, jar name, and
+replacement is Continuo's strongest distribution argument. Brand at the README, jar name, and
   release level instead.
 - **Public API is now a contract.** `sol` M7 flagged the new `IRestockBox`,
   `IRestockBoxCollection`, `IRestockProcess`, `IShelterProcess` and the `IBuilderProcess` /
@@ -241,7 +241,7 @@ the process state machines. Spend coverage effort there before adding placement 
 - Release workflow producing all four loaders × three variants, with checksums, plus a real
   `CHANGELOG.md`.
 - **State the support policy plainly: Minecraft 26.1.2 only.** The README currently inherits
-  upstream's 1.12.2–1.21.3 badge wall, which is false for this fork and the fastest way to earn bad
+  upstream's 1.12.2–1.21.3 badge wall, which is false for Continuo and the fastest way to earn bad
   issues.
 
 ### Documentation
@@ -257,7 +257,7 @@ Eight working docs sit at the repo root, all of them internal notes. Restructure
 | — | New: settings reference, `#addbox`/restock guide, harness guide, `CONTRIBUTING.md` |
 
 Retarget `.github/ISSUE_TEMPLATE` (currently upstream's) and add the line that saves everyone's
-time: *do not report fork bugs to cabaletta/baritone.*
+time: *do not report Continuo bugs to cabaletta/baritone.*
 
 ### Upstream relationship
 
@@ -267,7 +267,7 @@ walking) is a one-line fix with a clean diagnosis and a scenario behind it. **Of
 public fork whose author contributes fixes back is credible; one that only takes is not. It also
 shrinks the permanent rebase surface.
 
-Decide and write down the upstream-tracking cadence now — the fork is branched from `26.1` and
+Decide and write down the upstream-tracking cadence now — Continuo is branched from `26.1` and
 upstream has moved on. Keeping fork commits atomic and rebase-friendly is cheap now and expensive
 to retrofit.
 

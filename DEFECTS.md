@@ -422,7 +422,7 @@ show it.
 
 ### The measurement gap this exposed
 
-Performance is a stated goal of this fork, but **no scenario in the suite would detect a
+Performance is a stated goal of Continuo, but **no scenario in the suite would detect a
 build-scaling regression.** The suite proves correctness on small builds and says nothing about
 cost on large ones. A scenario that builds something big enough for the quadratic terms to matter --
 and asserts on tick count, which the harness already records -- is the missing instrument. Until it

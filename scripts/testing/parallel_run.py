@@ -104,8 +104,9 @@ def clone(base, target, world, jar):
         cfg.write_text(text)
 
     mods = dest / "minecraft" / "mods"
-    for old in mods.glob("baritone-*.jar"):
-        old.unlink()
+    for pattern in ("baritone-*.jar", "continuo-*.jar"):
+        for old in mods.glob(pattern):
+            old.unlink()
     shutil.copy2(jar, mods / Path(jar).name)
 
     # Reports from the base instance would otherwise be mistaken for this run's output.
@@ -179,7 +180,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-n", "--instances", type=int, default=4)
     parser.add_argument("-w", "--world", default="testing2")
-    parser.add_argument("--jar", help="path to the baritone jar (default: newest unoptimized fabric in dist/)")
+    parser.add_argument("--jar", help="path to the Continuo jar (default: newest unoptimized fabric jar in dist/)")
     parser.add_argument("--timeout", type=int, default=3600, help="seconds to wait for a report")
     parser.add_argument("--scenarios", help="file with one scenario name per line")
     parser.add_argument("--fuzz", help="inclusive seed range, e.g. 1-240")
@@ -193,7 +194,7 @@ def main():
     jar = args.jar
     if not jar:
         candidates = sorted(
-            Path("dist").glob("baritone-unoptimized-fabric-*.jar"),
+            Path("dist").glob("continuo-unoptimized-fabric-*.jar"),
             key=lambda p: p.stat().st_mtime,
         )
         if not candidates:

@@ -2,7 +2,7 @@
 
 100 proposed in-game scenarios, generated 2026-08-01 by `gpt-5.6-terra` and recorded here verbatim
 in substance. This is a **backlog, not a plan** — nothing here is committed to, and several entries
-describe capabilities this fork does not have yet (see "Not yet buildable" below).
+describe capabilities Continuo does not have yet (see "Not yet buildable" below).
 
 Scenarios are added under `src/main/java/baritone/testing/scenario/` and registered in
 `TestingBehavior`. New ones start `registerUncurated` and are promoted to curated only after a green
@@ -160,7 +160,7 @@ per-tick CPU budget, so a scenario using it is not a valid performance measureme
 
 ## Not yet buildable
 
-Several entries assume behaviour this fork does not have, and would fail as feature requests rather
+Several entries assume behaviour Continuo does not have, and would fail as feature requests rather
 than as regression tests. They are kept because they describe wanted behaviour, but they are not
 candidates until the capability exists:
 

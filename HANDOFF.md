@@ -6,7 +6,7 @@ those remain as history.
 
 ## Where things are
 
-`ROADMAP.md` is the plan: private fork → publicly released mod. Phase 0 and phase 2a are done,
+`ROADMAP.md` is the plan: Continuo → publicly released mod. Phase 0 and phase 2a are done,
 phase 1 (defect debt) is in progress.
 
 **The regression net exists now, and this is the thing to actually rely on.**
