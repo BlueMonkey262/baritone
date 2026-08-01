@@ -61,6 +61,24 @@ Every completed task must include: the baseline commit, loader and mods, precise
 - Done when: a sustained unsatisfiable placement remains safely retryable but reports the wanted
   state and the repeatedly simulated state at a bounded cadence.
 
+### U-local-03 — builder cannot satisfy post-placement repeater delay states
+
+- Status: `[x] confirmed as a capability gap by repeaters-delays (2026-07-31); no behavior change made`
+- Evidence: the `-20-gd686accf` live run gave the player 64 repeaters and asked for four supported
+  repeaters. The default `repeater[facing=north,delay=1]` at `BetterBlockPos{x=5179,y=-50,z=-5}`
+  was placed correctly; exactly the `delay=2`, `delay=3`, and `delay=4` targets remained air. The
+  builder then logged those state variants as missing and emitted `Unable to do it. Pausing`, so one
+  unbuildable state halted the whole schematic.
+- Code evidence: `BuilderProcess#derivedProperty` only waives derived neighbour state, and the
+  default `buildIgnoreProperties` list is empty. `couldProduce` only additionally waives
+  `ORIENTATION_PROPS`, which does not include `BlockStateProperties.DELAY`; therefore a fresh
+  delay-one repeater cannot be considered a material candidate for delays two through four.
+  The empty-goal branch at `BuilderProcess#onTick` logs the pause and sets `paused = true`.
+- Scope: this is not an orientation or material-shortage bug. The builder can place the component,
+  but has no operation to place it and then interact with it until a requested state is reached.
+- Done when: the builder has a bounded, state-aware post-placement interaction mechanism, and one
+  such target cannot poison unrelated build work. Do not implement that mechanism in this task.
+
 ## P0 — crashes, command-wide failure, infinite actions, or player-loss risk
 
 ## T01 — #5064: bridge block is placed/broken forever

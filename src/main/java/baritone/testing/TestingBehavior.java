@@ -34,6 +34,7 @@ import baritone.testing.scenario.LogsAxesScenario;
 import baritone.testing.scenario.ObserverBuildScenario;
 import baritone.testing.scenario.PathingCourseScenario;
 import baritone.testing.scenario.PistonObserverPairScenario;
+import baritone.testing.scenario.RepeatersDelaysScenario;
 import baritone.testing.scenario.RestockFromBoxScenario;
 import baritone.testing.scenario.SchematicBuildScenario;
 import baritone.testing.scenario.ShelterRetreatDistanceScenario;
@@ -124,6 +125,7 @@ public final class TestingBehavior extends Behavior implements Helper {
         registerUncurated(PistonObserverPairScenario::new);
         // These deliberately reproduce open defects and must not make #testing all fail until the
         // corresponding behavior fixes land.
+        registerUncurated(RepeatersDelaysScenario::new);
         registerUncurated(ShelterRetreatDistanceScenario::new);
         registerUncurated(UnreachableBuildTargetScenario::new);
         for (int seed = 1; seed <= FUZZ_COUNT; seed++) {
