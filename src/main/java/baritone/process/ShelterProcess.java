@@ -566,7 +566,14 @@ public final class ShelterProcess extends BaritoneProcessHelper implements IShel
             return null;
         }
         BetterBlockPos feet = ctx.playerFeet();
-        double maxDistSq = Math.pow(Baritone.settings().restockMaxDistance.value, 2);
+        double shelterMaxDistance = Baritone.settings().shelterMaxRetreatDistance.value;
+        double restockMaxDistance = Baritone.settings().restockMaxDistance.value;
+        if (!Double.isFinite(shelterMaxDistance) || shelterMaxDistance <= 0) {
+            shelterMaxDistance = restockMaxDistance;
+        }
+        // Restocking is a considered trip made when convenient; sheltering happens while taking
+        // damage, so a distance that's merely inefficient for restocking is dangerous in retreat.
+        double maxDistSq = Math.pow(Math.min(shelterMaxDistance, restockMaxDistance), 2);
         BetterBlockPos best = null;
         double bestDistSq = Double.MAX_VALUE;
         for (IRestockBox box : collection.getAllBoxes()) {
