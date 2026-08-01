@@ -127,10 +127,12 @@ public final class TestingBehavior extends Behavior implements Helper {
         // its target stands on a floor, so Baritone can satisfy either orientation rule and a pass
         // proves nothing about them. Promote it once it has a vertical pair.
         registerUncurated(PistonObserverPairScenario::new);
+        // Promoted from uncurated when U-local-04 was fixed: a scenario that reproduced a defect
+        // becomes a guard against its return in the same commit as the fix.
+        register(HoppersFacingScenario::new);
         // These deliberately reproduce open defects and must not make #testing all fail until the
         // corresponding behavior fixes land.
         registerUncurated(RepeatersDelaysScenario::new);
-        registerUncurated(HoppersFacingScenario::new);
         registerUncurated(ShelterRetreatDistanceScenario::new);
         registerUncurated(UnreachableBuildTargetScenario::new);
         for (int seed = 1; seed <= FUZZ_COUNT; seed++) {

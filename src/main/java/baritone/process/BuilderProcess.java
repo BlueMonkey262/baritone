@@ -87,11 +87,20 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     /**
      * Properties the player picks when placing a block, by where they stand and which face they
      * click. Ignored only when {@code buildIgnoreDirection} is on.
+     * <p>
+     * <b>Membership is by {@link Property} instance, not by name.</b> Several blocks declare their
+     * own facing property rather than reusing a shared one, and those are different objects that
+     * {@link Set#contains} will never match. {@code HopperBlock.FACING} is
+     * {@code BlockStateProperties.FACING_HOPPER}, not {@code BlockStateProperties.FACING} which
+     * {@code DirectionalBlock.FACING} resolves to -- so listing the latter did nothing for hoppers,
+     * and {@link #couldProduce} judged a plain hopper incapable of producing any specific facing.
+     * That surfaced as "missing materials" while holding a full stack of them (U-local-04). Before
+     * adding a block here, check which instance it actually uses.
      */
     private static final Set<Property<?>> ORIENTATION_PROPS =
             ImmutableSet.of(
                     RotatedPillarBlock.AXIS, HorizontalDirectionalBlock.FACING,
-                    DirectionalBlock.FACING,
+                    DirectionalBlock.FACING, HopperBlock.FACING,
                     StairBlock.FACING, StairBlock.HALF,
                     TrapDoorBlock.OPEN, TrapDoorBlock.HALF
             );
