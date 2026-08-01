@@ -60,6 +60,8 @@ Every completed task must include: the baseline commit, loader and mods, precise
   do not turn a recoverable retry into an immediate pause without a mechanism.
 - Done when: a sustained unsatisfiable placement remains safely retryable but reports the wanted
   state and the repeatedly simulated state at a bounded cadence.
+- Not the same defect as `hoppers-facing`: that one does name the wanted state, and names it
+  wrongly. See U-local-04.
 
 ### U-local-03 — builder cannot satisfy post-placement repeater delay states
 
@@ -78,6 +80,34 @@ Every completed task must include: the baseline commit, loader and mods, precise
   but has no operation to place it and then interact with it until a requested state is reached.
 - Done when: the builder has a bounded, state-aware post-placement interaction mechanism, and one
   such target cannot poison unrelated build work. Do not implement that mechanism in this task.
+
+### U-local-04 — hopper facing is absent from ORIENTATION_PROPS, so hoppers report as missing
+
+- Status: `[x] root-caused by hoppers-facing (2026-07-31); no behavior change made`
+- Evidence: the `-20-gd686accf` live run gave the player 64 hoppers with `clear @s` first, and asked
+  for five supported hoppers. Nothing was placed. At tick one the builder logged `Missing materials
+  for at least: 1x Block{minecraft:hopper}[enabled=true,facing=north]` (and east, and south) and
+  then `Unable to do it. Pausing`, while holding a full stack of hoppers.
+- Code evidence: `couldProduce` waives `ORIENTATION_PROPS` unconditionally, and that set names
+  `DirectionalBlock.FACING`, which the class initialiser resolves to
+  `BlockStateProperties.FACING`. `HopperBlock.FACING` resolves to a *different* property instance,
+  `BlockStateProperties.FACING_HOPPER` (verified in the 26.1.2 bytecode: `HopperBlock.<clinit>`
+  reads `FACING_HOPPER`, `DirectionalBlock.<clinit>` reads `FACING`). `ORIENTATION_PROPS.contains`
+  is therefore false for every hopper, and a default hopper item is judged incapable of producing
+  any specific `facing`.
+- Contrast that isolates it: in the same suite `piston-observer-pair` and five of six
+  `build-observers` facings place correctly. Those blocks use `DirectionalBlock.FACING` and so are
+  covered. The one observer that fails (`facing=up`) fails differently -- silent retry, not a
+  materials claim -- which is U-local-02.
+- Scope: the property set, not the placement machinery. This is a material-accounting bug that
+  reports a false shortage; it is not the U-local-03 post-placement-state gap, since a hopper's
+  facing is chosen at placement time.
+- Ruled out: the staged supports. Replacing the former chest support with stone reproduced
+  identically, and the "unmatched stone floor with no stone in inventory" lead recorded in
+  `HoppersFacingScenario` was wrong -- the logged missing material is the hopper itself.
+- Done when: a requested hopper facing is satisfied from a plain hopper item, and the false
+  "missing materials" claim is gone. Consider whether other one-off facing properties
+  (`FACING_HOPPER` and friends) belong in the same set.
 
 ## P0 — crashes, command-wide failure, infinite actions, or player-loss risk
 

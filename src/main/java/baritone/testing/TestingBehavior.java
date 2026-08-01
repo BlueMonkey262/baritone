@@ -30,6 +30,7 @@ import baritone.api.utils.Helper;
 import baritone.behavior.Behavior;
 import baritone.testing.scenario.DirectionalBuildScenario;
 import baritone.testing.scenario.FuzzPathingScenario;
+import baritone.testing.scenario.HoppersFacingScenario;
 import baritone.testing.scenario.LogsAxesScenario;
 import baritone.testing.scenario.ObserverBuildScenario;
 import baritone.testing.scenario.PathingCourseScenario;
@@ -126,6 +127,7 @@ public final class TestingBehavior extends Behavior implements Helper {
         // These deliberately reproduce open defects and must not make #testing all fail until the
         // corresponding behavior fixes land.
         registerUncurated(RepeatersDelaysScenario::new);
+        registerUncurated(HoppersFacingScenario::new);
         registerUncurated(ShelterRetreatDistanceScenario::new);
         registerUncurated(UnreachableBuildTargetScenario::new);
         for (int seed = 1; seed <= FUZZ_COUNT; seed++) {
