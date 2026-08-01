@@ -3,6 +3,15 @@
 State: **v0.1.1 released**. Trunk is `shulker-restock` at `35881fca`, clean. Supersedes the
 2026-08-01 handoff.
 
+## Naming history
+
+The project was renamed twice on 2026-08-01: to **Continuo** in `137218c4`, then to **Tenor**.
+
+**Releases `v0.1.0` and `v0.1.1` are published under the name Continuo** — that is what shipped, and
+their notes and jar filenames say so. Do not retitle them. v0.2 is the first release under Tenor and
+its notes should mention the rename, or users comparing them will reasonably think these are
+different projects.
+
 ## Where things are
 
 `ROADMAP.md` is still the plan. Phase 0 and 2a are done; Phase 1 (defect debt) is in progress.

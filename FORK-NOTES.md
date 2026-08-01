@@ -1,13 +1,13 @@
-# Continuo notes
+# Tenor notes
 
-Continuo is a private fork of [cabaletta/baritone](https://github.com/cabaletta/baritone), branched from `26.1`
+Tenor is a private fork of [cabaletta/baritone](https://github.com/cabaletta/baritone), branched from `26.1`
 (Minecraft 26.1.2). Everything below is additional to upstream.
 
 The headline feature is **automatic restocking**: `#build` can fetch materials from shulker boxes
 you've registered near the build site instead of stalling when it runs out. Along the way a few
 upstream bugs that made long builds painful are also fixed.
 
-## What Continuo is trying to be
+## What Tenor is trying to be
 
 Three goals, in priority order. They are listed here so a change can be judged against them.
 
@@ -453,7 +453,7 @@ watch for on first use:
 ## 7. In-game test harness
 
 `#testing` runs scenarios against a live world and writes a report. It exists because the things
-Continuo changes — restocking, sheltering, builder/backfill arbitration — are exactly the things
+Tenor changes — restocking, sheltering, builder/backfill arbitration — are exactly the things
 the JUnit suite cannot reach: they only mean anything with a server, a world and a process holding
 control for several thousand ticks.
 
@@ -481,7 +481,7 @@ real client, a world, and several thousand ticks of sustained control:
 
 ```bash
 python3 scripts/testing/parallel_run.py -n 3 --timeout 1800 --curated \
-  --jar dist/continuo-unoptimized-fabric-<version>.jar
+  --jar dist/tenor-unoptimized-fabric-<version>.jar
 python3 scripts/testing/diff_baseline.py            # what changed vs the committed baseline
 ```
 
@@ -491,7 +491,7 @@ other. It exits non-zero on a verdict regression, so it can gate a merge; paste 
 PR. Refresh the baseline with `--update` when a change is meant to move it, and say so in the commit
 message.
 
-Read the timing output, not just the verdicts. Performance is a goal of Continuo, and the one
+Read the timing output, not just the verdicts. Performance is a goal of Tenor, and the one
 regression that has actually slipped through so far was visible in wall clock (203s → 427s) while
 the verdicts showed only an unrelated scenario flaking.
 
