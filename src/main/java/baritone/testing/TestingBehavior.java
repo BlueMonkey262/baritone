@@ -33,6 +33,7 @@ import baritone.testing.scenario.FuzzPathingScenario;
 import baritone.testing.scenario.LogsAxesScenario;
 import baritone.testing.scenario.ObserverBuildScenario;
 import baritone.testing.scenario.PathingCourseScenario;
+import baritone.testing.scenario.PistonObserverPairScenario;
 import baritone.testing.scenario.RestockFromBoxScenario;
 import baritone.testing.scenario.SchematicBuildScenario;
 import baritone.testing.scenario.ShelterRetreatDistanceScenario;
@@ -117,6 +118,10 @@ public final class TestingBehavior extends Behavior implements Helper {
         register(LogsAxesScenario::new);
         register(ObserverBuildScenario::new);
         register(RestockFromBoxScenario::new);
+        // Uncurated because it cannot yet fail for the right reason: its facing is horizontal and
+        // its target stands on a floor, so Baritone can satisfy either orientation rule and a pass
+        // proves nothing about them. Promote it once it has a vertical pair.
+        registerUncurated(PistonObserverPairScenario::new);
         // These deliberately reproduce open defects and must not make #testing all fail until the
         // corresponding behavior fixes land.
         registerUncurated(ShelterRetreatDistanceScenario::new);
