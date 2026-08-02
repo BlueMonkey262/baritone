@@ -288,6 +288,35 @@ Only after a green 1.0 is out.
   Fixing upstream's long-standing mine/build loops is a better pitch than any new feature.
 - Capability expansion (farming, resource loops, base logistics) after that.
 
+### Requested: deposit raw ores and flint
+
+Reported from live play, 2026-08-02. A mining run fills up with raw iron, raw copper, raw gold and
+flint, and an unload trip refuses to deposit any of it, so the inventory stays full.
+
+The cause is `RestockProcess#isJunk`: a stack that is not a `BlockItem` is never junk
+(`RestockProcess.java:919`). Raw ores and flint are plain items — only their compacted forms
+(`raw_iron_block`) are blocks — so they are always kept.
+
+**That rule is load-bearing and must not simply be dropped.** It is what stops a deposit trip
+posting diamonds, ender pearls, netherite scrap or a totem into a shulker box. Removing the
+`BlockItem` test to catch flint would put everything valuable in scope, and the failure mode is
+silent and unrecoverable — the player finds out a stack is gone by not having it.
+
+So the shape is an explicit allowance for *bulk* non-block items rather than a loosening. Open
+questions before writing it:
+
+- Is the list configurable (a `depositAlsoItems` setting, defaulting to the raw ores and flint) or
+  hardcoded? Configurable is safer, since one player's junk is another's smelting queue.
+- Does it interact with `worthKeeping`? A mine started *for* raw iron must not deposit its own
+  output — `MineProcess#inventoryWants` already recognises drops from requested blocks, so this
+  probably falls out for free, but it needs a test rather than an assumption.
+- Flint is a fletching/firestarter input, raw ores are smelting input. Both are things a player
+  might deliberately be hoarding, which argues for the setting defaulting to *off*, consistent
+  with the fork convention.
+
+Needs a scenario: mine with a full inventory of raw ore, assert the box gains it and the run
+continues. `restock-deposit-*` scenarios are the closest existing shape.
+
 ---
 
 ## Sequencing
