@@ -243,6 +243,37 @@ stone barehanded at a hundredth speed instead of standing still.
 
 ---
 
+## 2b. Auto-eat
+
+`EatBehavior` eats when hunger drops to `autoEatFoodLevel` (default 14) and there is food on the
+hotbar. It exists for the same reason as sheltering: a long job should not end because nobody was
+watching the food bar.
+
+The awkward part is that vanilla only keeps an item in use while the use key is held — release it
+and the client tells the server to cancel, so the meal is thrown away having fed nothing, because
+the food is actually consumed server-side in `LivingEntity#completeUsingItem`. So the behaviour
+starts the use through the player controller like any other right click and then **holds the key
+down itself for the whole meal**.
+
+That is only safe because of tick ordering: Baritone's tick event fires before
+`Minecraft#handleKeybinds`, so the first tick on which the use is seen to have ended is also a tick
+where the key is released before the game reads it. The game therefore never observes the use key
+held with nothing in use — the state that would right-click whatever is under the crosshair.
+`EatBehavior` is registered **last**, after the processes, so the slot it selects is the one the
+player tick sees; otherwise the builder reselecting its material every tick would eat the schematic.
+
+`BlockBreakHelper#tick` returns early while an item is in use, so mining waits for the meal rather
+than cancelling it by switching slots mid-bite (see the comment there; it is the same interaction
+that DEFECTS.md tracks as M4).
+
+| Setting | Default | Notes |
+|---|---|---|
+| `autoEat` | `true` | The one piece of Tenor behaviour that is **not** off by default |
+| `autoEatFoodLevel` | `14` | Hunger points at or below which it eats |
+| `autoEatExclude` | poison/golden foods | Never eaten: the ones that hurt you and the ones you're saving |
+
+---
+
 ## 3. Upstream bug fixes
 
 ### Builder filled in its own path
@@ -352,6 +383,7 @@ src/api/java/baritone/api/cache/IRestockBoxCollection.java
 src/api/java/baritone/api/process/IRestockProcess.java
 src/api/java/baritone/api/process/IShelterProcess.java
 src/main/java/baritone/behavior/ContainerInteractionBehavior.java
+src/main/java/baritone/behavior/EatBehavior.java
 src/main/java/baritone/behavior/ThreatBehavior.java
 src/main/java/baritone/cache/RestockBox.java
 src/main/java/baritone/cache/RestockBoxCollection.java
@@ -362,7 +394,8 @@ src/main/java/baritone/process/ShelterProcess.java
 
 **Modified:** `Settings.java`, `IBaritone.java`, `IWorldData.java`, `IBuilderProcess.java`,
 `Baritone.java`, `WorldData.java`, `DefaultCommands.java`, `InventoryBehavior.java`,
-`BackfillProcess.java`, `BuilderProcess.java`, `MineProcess.java`.
+`BackfillProcess.java`, `BuilderProcess.java`, `MineProcess.java`, `ToolSet.java`,
+`BlockBreakHelper.java`.
 
 `RestockProcess` must be registered **before** `BuilderProcess` in `Baritone.java`:
 `PathingControlManager#registerProcess` calls `onLostControl()` immediately, and
