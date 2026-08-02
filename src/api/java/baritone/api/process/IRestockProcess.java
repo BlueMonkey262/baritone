@@ -17,6 +17,7 @@
 
 package baritone.api.process;
 
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -44,6 +45,25 @@ public interface IRestockProcess extends IBaritoneProcess {
      * @return {@code true} if a restock run was started
      */
     boolean requestRestock(Map<BlockState, Integer> missing, Predicate<ItemStack> worthKeeping);
+
+    /**
+     * Asks this process to go and fetch a replacement for a tool that is about to break.
+     * <p>
+     * The sibling of {@link #requestRestock} for the case where what ran out is not a material but
+     * the means of working it. Keyed by {@link Item} rather than {@link BlockState} because a
+     * pickaxe has no block form; everything below the first few lines of {@code requestRestock} was
+     * already item-keyed, so the walk, the open and the transfer are shared.
+     * <p>
+     * Declining is normal and final: the caller is expected to stop the job and say so rather than
+     * ask again, since nothing about standing still will make a box appear.
+     *
+     * @param tool         The item to fetch, typically the spent tool's own type
+     * @param worthKeeping Whether an inventory stack belongs to the work being done
+     * @return {@code true} if a fetch run was started
+     */
+    default boolean requestTool(Item tool, Predicate<ItemStack> worthKeeping) {
+        return false;
+    }
 
     /**
      * Walks to every registered box whose contents we've never actually observed, opens it, and
