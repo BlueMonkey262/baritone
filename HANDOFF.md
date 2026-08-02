@@ -1,104 +1,114 @@
-# Handoff — 2026-08-01
+# Handoff — 2026-08-02
 
-State at `6736a184` on `phase-1/defect-triage`. Working tree clean; nothing pushed since the three
-open PRs. Supersedes `TESTING-HANDOFF.md` and `TESTING-HANDOFF-CATALOG.md` for "what to do next";
-those remain as history.
+State: **v0.1.1 released**. Trunk is `shulker-restock` at `35881fca`, clean. Supersedes the
+2026-08-01 handoff.
 
 ## Where things are
 
-`ROADMAP.md` is the plan: Continuo → publicly released mod. Phase 0 and phase 2a are done,
-phase 1 (defect debt) is in progress.
+`ROADMAP.md` is still the plan. Phase 0 and 2a are done; Phase 1 (defect debt) is in progress.
+`V0.2-PLAN.md` (on `fix/shelter-diagnostic`, not yet on trunk) is the new multi-version plan.
 
-**The regression net exists now, and this is the thing to actually rely on.**
+**The regression net, unchanged and still the thing to rely on:**
 
-- `./gradlew test` — green, 108 tests. CI runs it plus a four-loader compile on every push
-  (`.github/workflows/build.yml`), verified green on real runners.
-- Curated in-game suite — **33/33 across three clients, ~210s**.
-- `scripts/testing/diff_baseline.py` compares a run against `scripts/testing/baseline.json` and
-  reports verdict changes, per-scenario ticks, wall clock, and cross-instance disagreement.
+- `./gradlew :test` — 115 tests green (was 108; `ToolSetTest` added 7)
+- Curated in-game suite — **33/33 across three clients, 205s** (baseline 208s, no drift)
+- `scripts/testing/diff_baseline.py` compares a run to `scripts/testing/baseline.json`
 
-Judge a change against the **whole** suite. Twice today a change made its own scenario green while
-breaking something else; both times only the full run caught it.
+## Released: v0.1.1
 
-## Open PRs, stacked, all CI-green, none merged
+https://github.com/BlueMonkey262/baritone/releases/tag/v0.1.1 — pre-release, 12 jars, all four
+loaders. Still named **Continuo**; Eli chose to defer the Tenor rename ("early access, just me and a
+friend, building continuo is okay until the next release").
 
-| PR | Branch | Base |
-|---|---|---|
-| [#1](https://github.com/BlueMonkey262/baritone/pull/1) | `fix/observer-up-placement` | `shulker-restock` |
-| [#2](https://github.com/BlueMonkey262/baritone/pull/2) | `phase-2a/test-signal` | #1 |
-| [#3](https://github.com/BlueMonkey262/baritone/pull/3) | `phase-1/defect-triage` | #2 |
+Headline change: **`itemSaver` now actually stops tools breaking.** Upstream's javadoc promised it
+and the code only filtered slot selection. Enforced in `BlockBreakHelper#tick`, the single choke
+point every block break passes through. See `FORK-NOTES.md` §2a for the full reasoning.
 
-`phase-1/defect-triage` has three commits **not yet pushed** (`fcb8291d`, `d0ba7b6a`, `6736a184`).
-Pushing them updates #3.
+`26.1.2_copy` is running this build (`continuo-standalone-fabric-0.1.1.jar`, verified single jar,
+md5 matches `dist/`).
 
-## Do this next, in order
+## Branches
 
-### 1. Push, and re-run the suite once (~10 min)
+| Branch | State |
+|---|---|
+| `shulker-restock` | **Trunk.** `35881fca`. Clean. No `main` exists in this fork |
+| `fix/shelter-diagnostic` | 2 commits, **local only**. Shelter message fix + V0.2 plan + ROADMAP entry |
+| `phase-1/defect-triage` | Pushed. Holds `ee9107b0` (Tenor rename) **and duplicates** of the two itemSaver commits under old SHAs — backup only, do not merge as-is |
+| `tenor/1.21.11` | Being created by Codex right now — see below |
 
-`git push origin phase-1/defect-triage`, then one curated run. Two changes landed today that touch
-the builder's control flow on every tick, and each has exactly one green run behind it. A second run
-is the cheapest possible confidence, and `diff_baseline.py` makes the comparison mechanical.
+**The rename, when you want it:** cherry-pick only `ee9107b0` onto a fresh branch off trunk. Do not
+merge `phase-1/defect-triage`; it would replay the itemSaver change on top of itself.
 
-### 2. Fix the two broken scenarios (~30 min, delegable)
+## In flight: Codex is porting to 1.21.11
 
-Both are registered uncurated and both fail for the *wrong* reason — neither creates the condition it
-tests, so neither could catch a regression:
+`codex-baritone-3` is running step 2 of `V0.2-PLAN.md` — port the fork to 1.21.11 on branch
+`tenor/1.21.11`. Brief is in `CODEX-TASK-1.21.11.md` (untracked, repo root, delete when done).
 
-- `restock-multiple-boxes` — **STAGING_FAILED**, the arena never appeared on the client. Check its
-  staging commands against this Minecraft version. It got further on an earlier run, so this is
-  likely a specific command, not the harness.
-- `restock-empty-indexed-box` — completes the ring without ever visiting the stale box, so the
-  live-index correction never runs. The stale box has to be the one box selection actually picks
-  first; see how candidates are ordered (recorded contents first, then distance).
+Gates it must pass: `./gradlew :test` green, `./gradlew build` all four loaders. It was told not to
+push, not to touch other branches, and not to change behaviour. **Verify its report against the
+diff** — see the process note at the bottom.
 
-### 3. Settle `shelter-retreat-distance` (~20 min)
+The specific thing to check: our code was written for Java 25 and 1.21.11 builds on Java 21. Whether
+we use any Java 22+ construct is unknown, and finding out is part of that task.
 
-It now reaches its assertion — it previously never received hostile damage, so it had never really
-run — and reports: *selected a shelter box 50 blocks away after hostile damage; bound is 12*.
+## v0.2 — multi-version
 
-That is a **configuration mismatch, not a bug**. `shelterMaxRetreatDistance` defaults to 64, the
-scenario wants 12, and the scenario predates the setting so it never sets it. Decide which is right:
-set the setting in the scenario's settings map (most likely), or lower the default. Then F1 is
-verified and the scenario can be promoted to curated.
+Full plan in `V0.2-PLAN.md`. The load-bearing measurements:
 
-### 4. Then continue the ledger
+- Our fork vs `upstream/26.1`: 90 files, **+16,025 / −152** — almost entirely new files, which is
+  why version ports barely touch us
+- `upstream/1.21.11` → `26.1`: 35 files, +93/−97
+- `upstream/26.1` → `26.2`: 23 files, +135/−168
+- **Only 3 files collide per port**, and the changes are mechanical API renames
 
-`DEFECTS.md` is the single source of truth for what is open. Of 31 triaged findings, most were
-already fixed; what remains after today:
+Scope: **1.21.11, 26.1.2, 26.2**. 26.3 is snapshot-only (Mojang manifest: latest release is 26.2,
+latest snapshot 26.3-snapshot-6), so it gets a tracking branch and no tag.
 
-- **M2** — a box switch does not rescope the old restock path. Small fix, no test.
-- **U-local-03** — repeaters need place-then-interact. The largest item: a new builder mechanism, and
-  it blocks several entries in `TEST_BACKLOG.md`.
-- **H4 residual** — lid clearance still uses `isBlockNormalCube`, so a slab in the lid's swing reads
-  as clear.
-- **H6 / H8 residuals** — container ownership and quick-move settling are PARTIAL; see their entries.
-- **L4** — reroute docs contradict the behaviour.
+**Standing decision: we do our own version ports**, rather than waiting on upstream branches or PRs.
+Upstream's ports stay a reference we may read and copy freely — same LGPL, same project — but not a
+dependency. Upstream PR #5076 is a complete four-loader 26.2 port and is worth diffing against as a
+check. (An earlier worry that 26.2 Forge might not exist upstream was wrong.)
 
-## Two things worth knowing before you touch anything
+Two open questions in §9: the tag scheme (`v0.2.0-mc26.2` recommended for sortability, vs
+`v0.2-26.2` as first proposed), and whether to fold the Tenor rename into step 1.
 
-**Instrument before theorising.** The observer defect took two rounds of careful static reasoning
-that produced a plausible, self-consistent, wrong answer. Six lines of logging settled it in one run.
-The harness can print anything you want into the report via `arena.note`.
+## Open work
 
-**Verify what agents report, not just what they produce.** Today alone: a triage said "37 items" when
-there were 31; a diagnosis stated a step misleadingly enough to send the fix in the wrong direction;
-and a carefully specified change was implemented perfectly and still had to be reverted because the
-spec was wrong. Both review concerns raised against the U-local-01 patch turned out to be real bugs
-the author confirmed on being asked. Ask.
+- **`FarmProcess` gap** — it forces `CLICK_LEFT` and gets `itemSaver`'s suppression but not the
+  fetch-or-stop escalation, so with the setting on it would stall quietly. Narrow (crops need no
+  tool) but real, and shipped in v0.1.1.
+- **No in-game coverage for `itemSaver`** — the 33/33 run proves no regression, but the setting
+  defaults off and no scenario enables it, so the new path has never run in a world. A scenario
+  staging a near-broken pickaxe plus a stocked box is the missing piece.
+- **Raw ore and flint deposit** — requested from live play, recorded in `ROADMAP.md` Phase 4. Not a
+  one-liner: the `BlockItem` test in `RestockProcess#isJunk` is what stops a deposit trip filing away
+  diamonds and totems, so it needs an explicit bulk-item allowance, not a loosening.
+- **`DEFECTS.md`** — M2, L3 and L4 were closed this session. Still open: H4 residual, H6/H8
+  residuals, U-local-01, U-local-03, F1.
 
-## Performance is now a stated goal, and is not yet measurable
+## Process notes worth keeping
 
-`FORK-NOTES.md` lists it third, with two rules: measure before and after, treat a slowdown as a
-defect. Two real optimizations landed today with **no measurable effect**, because every build
-scenario in the suite is tiny — `placeable` never grows enough for the quadratic terms to matter.
+**Do not paste multi-line prompts into Codex over tmux.** It killed the session outright — fresh
+banner, new session id, prompt never ran. Write the brief to a file in the repo and send a one-line
+prompt pointing at it, then send Enter as a separate keystroke. That works reliably. The old
+`tmux load-buffer` + `paste-buffer -p` recipe is no longer dependable at this size.
 
-**Nothing currently detects a build-scaling regression.** A large-build scenario asserting on tick
-count is the missing instrument, and it is the highest-value single addition to the harness. It is
-not in `TEST_BACKLOG.md`'s 100 because nobody proposed it.
+**Watch for compound shell commands where an early step fails.** A `gh pr create` failed on a missing
+`--body` and the `git push --delete` on the next line ran anyway, deleting the only branch holding
+the full stack before anything had merged. Recovered only because the commit SHAs had been printed
+moments earlier and nothing had run `git gc`. Print SHAs before destructive operations.
 
-## Housekeeping left undone
+**Stacked PRs do not retarget unless you delete the base branch.** All three PRs merged
+"successfully" and trunk still had only the first one's content — each merge landed in its own base
+branch. Verify trunk after merging a stack rather than assuming.
 
-- `TESTING-HANDOFF.md` and `TESTING-HANDOFF-CATALOG.md` should fold into history; this file replaces
-  their forward-looking half.
-- Stale PrismLauncher clones: `baritone-testing(1)`, `(2)`, `-1` … `-4`, several hundred MB.
-- `sol-high-review.md` is gitignored on purpose — it is local-only. `DEFECTS.md` supersedes it.
+**Verify what agents report.** Codex's sweep this session was accurate and genuinely useful — it
+found the `BlockBreakHelper` choke point that turned an eight-call-site change into a single guard —
+but every load-bearing claim was checked against the source before being acted on. Keep doing that.
+
+## Housekeeping
+
+- `CODEX-TASK-1.21.11.md` — untracked, delete once the port lands
+- Stale PrismLauncher clones `baritone-testing(1)`, `(2)`, `-4` — still there, several hundred MB
+- An orphaned Minecraft JVM was killed this session (27 hours old, 5.2 GB resident). Worth checking
+  for others; they do not reliably exit
