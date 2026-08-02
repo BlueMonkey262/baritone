@@ -187,13 +187,34 @@ public class ToolSet {
      * @return {@code true} if a spent tool is the only good option for this block
      */
     public boolean isBlockedByItemSaver(Block b) {
+        return spentToolFor(b) != null;
+    }
+
+    /**
+     * The nearly-broken tool {@code itemSaver} is keeping us from using on this block.
+     * <p>
+     * This is the item a replacement should be fetched of, and it is deliberately <i>not</i>
+     * "whatever is in hand". When the rule skips a spent pickaxe, selection falls through to
+     * whatever else scores best — with {@code useSwordToMine} on, that is typically a sword, which
+     * costs two durability per block and is usually worth more than the pickaxe being protected.
+     * Asking what is held would then request a spare sword, which is not the problem.
+     *
+     * @param b the block we are about to break
+     * @return the spent tool being withheld, or {@code null} if the rule is costing us nothing here
+     */
+    public ItemStack spentToolFor(Block b) {
         if (!Baritone.settings().itemSaver.value) {
-            return false;
+            return null;
         }
         ItemStack saved = player.getInventory().getItem(getBestSlot(b, false, false, true));
         ItemStack ignoring = player.getInventory().getItem(getBestSlot(b, false, false, false));
         BlockState state = b.defaultBlockState();
-        return calculateSpeedVsBlock(ignoring, state) > calculateSpeedVsBlock(saved, state);
+        if (calculateSpeedVsBlock(ignoring, state) <= calculateSpeedVsBlock(saved, state)) {
+            return null;
+        }
+        // The faster option was withheld, so it is the spent one by construction -- that is the only
+        // reason honouring the rule can pick something slower.
+        return isSpent(ignoring) ? ignoring : null;
     }
 
     private int getBestSlot(Block b, boolean preferSilkTouch, boolean pathingCalculation, boolean honorItemSaver) {
