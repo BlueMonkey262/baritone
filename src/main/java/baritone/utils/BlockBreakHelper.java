@@ -24,6 +24,7 @@ import baritone.api.utils.IPlayerContext;
 import baritone.utils.accessor.IPlayerControllerMP;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
@@ -48,8 +49,11 @@ public final class BlockBreakHelper {
     /** Consecutive ticks mining has been suppressed because the held tool is nearly broken. */
     private int spentToolTicks = 0;
 
+    /** The tool being withheld while {@link #spentToolTicks} is counting, or null. */
+    private ItemStack spentTool;
+
     /**
-     * How long mining has been blocked by {@code itemSaver} refusing to swing the held tool.
+     * How long mining has been blocked by {@code itemSaver} withholding a nearly-broken tool.
      * <p>
      * Read by the processes that drive mining so they can escalate -- fetch a replacement, or give
      * up and say why -- rather than leaving the bot pointed at a block it has decided not to hit.
@@ -58,6 +62,37 @@ public final class BlockBreakHelper {
      */
     public int getSpentToolTicks() {
         return spentToolTicks;
+    }
+
+    /**
+     * The nearly-broken tool that is blocking mining, for a caller that wants to replace it.
+     * <p>
+     * Not the same as the held item: when the rule withholds a spent pickaxe, selection falls
+     * through to whatever else scores best, which with {@code useSwordToMine} on is usually a
+     * sword. Asking what is held would send the bot to fetch a spare sword.
+     *
+     * @return the withheld tool, or {@code null} if mining is not currently blocked
+     */
+    public ItemStack getSpentTool() {
+        return spentTool;
+    }
+
+    /**
+     * The tool {@code itemSaver} is withholding for this block, or null if it is costing us nothing.
+     * <p>
+     * Constructing a {@link ToolSet} per tick is why this exits early when the setting is off, which
+     * is the default: for anyone not using the feature the cost is one boolean read. When it is on,
+     * this matches what {@code switchToBestToolFor} already does on the same path.
+     */
+    private ItemStack spentToolWithheldFor(BlockPos target) {
+        if (!Baritone.settings().itemSaver.value) {
+            return null;
+        }
+        if (ToolSet.isSpent(ctx.player().getMainHandItem())) {
+            // already holding it -- the fallback branches that never select a tool land here
+            return ctx.player().getMainHandItem();
+        }
+        return new ToolSet(ctx.player()).spentToolFor(ctx.world().getBlockState(target).getBlock());
     }
 
     BlockBreakHelper(Baritone baritone) {
@@ -109,30 +144,36 @@ public final class BlockBreakHelper {
             }
             usingItemTicks = 0;
         }
-        if (isLeftClick && ctx.player() != null && ToolSet.isSpent(ctx.player().getMainHandItem())) {
-            // Every block break in Baritone reaches this method -- the eight places that force
-            // CLICK_LEFT only raise a flag, and two of them (MovementTraverse's "something in the
-            // way" branch and MovementPillar's break-above) never select a tool at all, so they
-            // swing whatever is held regardless of autoTool. Refusing here is therefore the only
-            // check that covers all of them, and the only one autoTool cannot bypass.
-            spentToolTicks++;
-            if (Baritone.settings().chatDebug.value && spentToolTicks % SPENT_TOOL_LOG_INTERVAL_TICKS == 1) {
-                Helper.HELPER.logDirect(String.format(
-                        "Not mining: %s is nearly broken and itemSaver is on (%d ticks).",
-                        ctx.player().getMainHandItem().getItem().getName(ctx.player().getMainHandItem()).getString(),
-                        spentToolTicks
-                ));
-            }
-            stopBreakingBlock();
-            return;
-        }
-        spentToolTicks = 0;
         if (breakDelayTimer > 0) {
             breakDelayTimer--;
             return;
         }
         HitResult trace = ctx.objectMouseOver();
         boolean isBlockTrace = trace != null && trace.getType() == HitResult.Type.BLOCK;
+
+        if (isLeftClick && isBlockTrace && ctx.player() != null) {
+            // Every block break in Baritone reaches this method -- the eight places that force
+            // CLICK_LEFT only raise a flag, and two of them (MovementTraverse's "something in the
+            // way" branch and MovementPillar's break-above) never select a tool at all, so they
+            // swing whatever is held regardless of autoTool. Refusing here is therefore the only
+            // check that covers all of them, and the only one autoTool cannot bypass.
+            ItemStack withheld = spentToolWithheldFor(((BlockHitResult) trace).getBlockPos());
+            if (withheld != null) {
+                this.spentTool = withheld;
+                spentToolTicks++;
+                if (Baritone.settings().chatDebug.value && spentToolTicks % SPENT_TOOL_LOG_INTERVAL_TICKS == 1) {
+                    Helper.HELPER.logDirect(String.format(
+                            "Not mining: %s is nearly broken and itemSaver is on (%d ticks).",
+                            withheld.getItem().getName(withheld).getString(),
+                            spentToolTicks
+                    ));
+                }
+                stopBreakingBlock();
+                return;
+            }
+        }
+        spentToolTicks = 0;
+        this.spentTool = null;
 
         if (isLeftClick && isBlockTrace) {
             BlockPos target = ((BlockHitResult) trace).getBlockPos();

@@ -38,6 +38,7 @@ import baritone.api.pathing.movement.IMovement;
 import baritone.pathing.movement.Movement;
 import baritone.pathing.movement.MovementHelper;
 import baritone.utils.BaritoneProcessHelper;
+import baritone.utils.BlockBreakHelper;
 import baritone.pathing.path.PathExecutor;
 import baritone.utils.BlockStateInterface;
 import baritone.utils.PathingCommandContext;
@@ -916,8 +917,10 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
         // itemSaver has stopped us swinging a tool that is about to break. A build breaks as well as
         // places, so this stalls the job just as a missing material would; fetch a replacement if a
         // registered box has one, and otherwise stop rather than stand in front of the block.
-        if (baritone.getInputOverrideHandler().getBlockBreakHelper().getSpentToolTicks() > SPENT_TOOL_GRACE_TICKS) {
-            ItemStack spent = ctx.player().getMainHandItem();
+        BlockBreakHelper breakHelper = baritone.getInputOverrideHandler().getBlockBreakHelper();
+        if (breakHelper.getSpentToolTicks() > SPENT_TOOL_GRACE_TICKS && breakHelper.getSpentTool() != null) {
+            // the withheld tool, not whatever is held -- see BlockBreakHelper#getSpentTool
+            ItemStack spent = breakHelper.getSpentTool();
             String name = spent.getItem().getName(spent).getString();
             IRestockProcess restock = restockProcess();
             if (restock != null && restock.requestTool(spent.getItem(), this::inventoryWants)) {

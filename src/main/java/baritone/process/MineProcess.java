@@ -31,6 +31,7 @@ import baritone.cache.CachedChunk;
 import baritone.pathing.movement.CalculationContext;
 import baritone.pathing.movement.MovementHelper;
 import baritone.utils.BaritoneProcessHelper;
+import baritone.utils.BlockBreakHelper;
 import baritone.utils.BlockStateInterface;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
@@ -116,8 +117,10 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         // itemSaver has stopped us swinging a tool that is about to break. Fetch a replacement if a
         // registered box has one; otherwise stop and say so, because standing in front of a block we
         // have decided not to hit is indistinguishable from working and can last all night.
-        if (baritone.getInputOverrideHandler().getBlockBreakHelper().getSpentToolTicks() > SPENT_TOOL_GRACE_TICKS) {
-            ItemStack spent = ctx.player().getMainHandItem();
+        BlockBreakHelper breakHelper = baritone.getInputOverrideHandler().getBlockBreakHelper();
+        if (breakHelper.getSpentToolTicks() > SPENT_TOOL_GRACE_TICKS && breakHelper.getSpentTool() != null) {
+            // the withheld tool, not whatever is held -- see BlockBreakHelper#getSpentTool
+            ItemStack spent = breakHelper.getSpentTool();
             String name = spent.getItem().getName(spent).getString();
             IRestockProcess restock = baritone.getRestockProcess();
             if (restock != null && restock.requestTool(spent.getItem(), this::inventoryWants)) {
