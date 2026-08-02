@@ -39,27 +39,134 @@ Every completed task must include: the baseline commit, loader and mods, precise
 - Done when: an unreachable target reaches a bounded, observable builder result without repeated
   identical replans, while reachable builds still complete.
 
-### U-local-02 — unsatisfiable block state provides no user-visible explanation
+### U-local-02 — up-facing placement was planned from a physically impossible click
 
-- Status: `[ ] reproduced in the live session; logging behavior not yet designed`
-- Evidence: an up-facing observer had 59 observers available, but twenty-five consecutive attempts
-  all simulated `observer[facing=west]` for requested `observer[facing=up]`; the builder silently
-  retried and the user reasonably inferred a material shortage. The current harness records the
-  world-state failure but intentionally does not scrape chat, so its scenario cannot by itself
-  assert the eventual `logDirect` wording.
-- Orientation diagnostic, same target `BetterBlockPos{x=5191,y=-50,z=-5}`: this is **not** gated
-  out before `acceptableFacings`. `placementGoal` finds the floor at y=-51 as its only support,
-  `acceptableFacings` returns `[up]`, and the current `GoalPlaceOriented` expands that to the
-  unreachable standing region `y <= -53`. Separately, `possibleToPlace` reaches all five floor
-  hit points, but their 26–35 degree pitches leave the horizontal look component dominant:
-  `getNearestLookingDirection()` returns EAST and observer placement inverts it to WEST. Producing
-  `facing=up` needs a downward pitch above 45 degrees, which requires standing within roughly 1.6
-  blocks of the hit point; the observed positions are about 2.8 blocks away.
+> **This is not an upstream defect, and this entry's original mechanism was wrong.** Rewritten
+> 2026-08-01. The responsible code — `acceptableFacings` and `GoalPlaceOriented` — was added by
+> *this fork* at `a045382f`; upstream has none of it. **Move to `DEFECTS.md` when that file exists**
+> and drop it from this backlog, which is for `cabaletta/baritone` issues.
+
+- Status: `[x] root-caused and fixed 2026-08-01 (uncommitted); awaiting an in-game harness run`
+
+**What this entry used to claim, and why it was false.** It asserted that
+`getNearestLookingDirection()` returned EAST and that "observer placement inverts it to WEST". Both
+halves are wrong. `ObserverBlock#getStateForPlacement` computes
+`getNearestLookingDirection().getOpposite().getOpposite()` — identity — verified in the 26.1.2
+bytecode; piston and dispenser are the blocks that invert. And there is nowhere for such a
+disagreement to hide: `BuilderProcess#wouldPlace` sets the player's real rotation and calls
+vanilla's own `getStateForPlacement`, so Baritone's simulation *is* vanilla. The observed
+`observer[facing=west]` simulations were real, but they were the ordinary result of shallow look
+pitches at reachable hit points, not evidence of an inversion.
+
+The entry also said `placementGoal` "finds the floor as its only support". That loop only *gates*:
+it requires some non-UP neighbour to satisfy `canPlaceAgainst` and then calls
+`orientedPlacementGoal`, which never receives the direction it found.
+
+**Actual root cause: the orientation goal and the placement scan had disjoint windows, so no
+up-facing block was placeable from any position.** `GoalPlaceOriented`'s UP branch required feet at
+`y <= targetY - 3`, while upstream's `searchForPlacables` only scans `dy` from `-5` to `+1`
+relative to the player's feet. The target therefore sat at `dy = +3`, outside the scan — so from
+the exact position the orientation goal had just walked to, the builder never even considered the
+target. No placement was proposed, no rotation was requested, and the look behaviour sat frozen at
+whatever pitch pathing left it at.
+
+Found by instrumenting the scenario, not by reading. The measurement that settled it: the player
+reached the stand region and then held `pitch=+34.7` — aimed *downward* — for ten seconds before
+wandering off. A builder that never aims cannot be failing at aiming.
+
+**Fix (uncommitted, verified in game).**
+
+- `GoalPlaceOriented`'s UP branch relaxed from `targetY - 3` to `targetY - 2`, heuristic moved in
+  step. `-2` is what "below" actually requires: the eye sits at feet+1.62, so feet at `targetY - 2`
+  puts it at `targetY - 0.38`, just under the face being aimed at. `-3` was strict for no reason
+  and pushed the target out of scan range.
+- `searchForPlacables`' scan widened from `dy <= 1` to `dy <= 2`. **This is a change to upstream
+  code and has the widest blast radius** — the builder now considers placements two blocks above
+  its feet generally, not only here.
+- `ObserverBuildScenario` gained a valid UP geometry: target at `y=2` (exactly two above the
+  standing floor — the one height at which the goal and the scan are both satisfiable), a block
+  above whose underside is clicked, and a side support that exists only to satisfy the
+  `placementGoal` gate described above.
+
+**A fix that was tried and reverted, recorded so it is not retried.** `acceptableFacings` was made
+support-aware — enumerating real candidate supports and rejecting look/face pairs whose dot product
+is positive — on the theory that pairing a `-90` pitch with the top face of the block below is
+physically impossible. The premise is true but irrelevant: that method only asks which *look*
+produces the state, and the real placement re-derives its own face and hit point. The change was
+also actively harmful. For a pillar the axis comes from the clicked *face*, so a north neighbour
+makes `axis=z` matchable from three different look directions, and the method began returning a
+stand constraint for a state that does not depend on where the player stands. Measured cost:
+`logs-axes` went bimodal (the `axis=z` log placed in ~95s or not at all within its 240s budget),
+the curated suite fell to 28/30, and its wall clock doubled from 203s to 427s.
+
+Result: with only the two window bounds changed, the curated suite is **30/30 across three clients
+in 203s** — green for the first time. `build-observers` places all six facings in ~33s.
+
+**Upstream angle.** Defect 3's scan bound is upstream's. Upstream never generates a goal that
+stands three below a target, so it does not hit this exact stall — but the `dy <= 1` bound means
+upstream also cannot place an up-facing block by aiming at the underside of the block above it.
+Worth reporting separately from this fork's orientation planner.
+
+**What remains genuinely open.** A sustained unsatisfiable placement still retries silently, and a
+user reasonably reads that as a material shortage. That concern outlived its example: it was
+*demonstrated* by this defect but not *caused* by it, and any future unsatisfiable state reproduces
+it. This is the only part still worth its own task.
+
 - Scope: bounded, throttled user-facing explanation for a position whose candidate placements
   repeatedly disagree with the requested block state. Reuse the diagnostic's throttling shape;
   do not turn a recoverable retry into an immediate pause without a mechanism.
 - Done when: a sustained unsatisfiable placement remains safely retryable but reports the wanted
   state and the repeatedly simulated state at a bounded cadence.
+- Testing note: the harness reads world state and deliberately does not scrape chat, so a scenario
+  cannot assert the `logDirect` wording by itself.
+- Not the same defect as `hoppers-facing`: that one does name the wanted state, and names it
+  wrongly. See U-local-04.
+
+### U-local-03 — builder cannot satisfy post-placement repeater delay states
+
+- Status: `[x] confirmed as a capability gap by repeaters-delays (2026-07-31); no behavior change made`
+- Evidence: the `-20-gd686accf` live run gave the player 64 repeaters and asked for four supported
+  repeaters. The default `repeater[facing=north,delay=1]` at `BetterBlockPos{x=5179,y=-50,z=-5}`
+  was placed correctly; exactly the `delay=2`, `delay=3`, and `delay=4` targets remained air. The
+  builder then logged those state variants as missing and emitted `Unable to do it. Pausing`, so one
+  unbuildable state halted the whole schematic.
+- Code evidence: `BuilderProcess#derivedProperty` only waives derived neighbour state, and the
+  default `buildIgnoreProperties` list is empty. `couldProduce` only additionally waives
+  `ORIENTATION_PROPS`, which does not include `BlockStateProperties.DELAY`; therefore a fresh
+  delay-one repeater cannot be considered a material candidate for delays two through four.
+  The empty-goal branch at `BuilderProcess#onTick` logs the pause and sets `paused = true`.
+- Scope: this is not an orientation or material-shortage bug. The builder can place the component,
+  but has no operation to place it and then interact with it until a requested state is reached.
+- Done when: the builder has a bounded, state-aware post-placement interaction mechanism, and one
+  such target cannot poison unrelated build work. Do not implement that mechanism in this task.
+
+### U-local-04 — hopper facing is absent from ORIENTATION_PROPS, so hoppers report as missing
+
+- Status: `[x] root-caused by hoppers-facing (2026-07-31); no behavior change made`
+- Evidence: the `-20-gd686accf` live run gave the player 64 hoppers with `clear @s` first, and asked
+  for five supported hoppers. Nothing was placed. At tick one the builder logged `Missing materials
+  for at least: 1x Block{minecraft:hopper}[enabled=true,facing=north]` (and east, and south) and
+  then `Unable to do it. Pausing`, while holding a full stack of hoppers.
+- Code evidence: `couldProduce` waives `ORIENTATION_PROPS` unconditionally, and that set names
+  `DirectionalBlock.FACING`, which the class initialiser resolves to
+  `BlockStateProperties.FACING`. `HopperBlock.FACING` resolves to a *different* property instance,
+  `BlockStateProperties.FACING_HOPPER` (verified in the 26.1.2 bytecode: `HopperBlock.<clinit>`
+  reads `FACING_HOPPER`, `DirectionalBlock.<clinit>` reads `FACING`). `ORIENTATION_PROPS.contains`
+  is therefore false for every hopper, and a default hopper item is judged incapable of producing
+  any specific `facing`.
+- Contrast that isolates it: in the same suite `piston-observer-pair` and five of six
+  `build-observers` facings place correctly. Those blocks use `DirectionalBlock.FACING` and so are
+  covered. The one observer that fails (`facing=up`) fails differently -- silent retry, not a
+  materials claim -- which is U-local-02.
+- Scope: the property set, not the placement machinery. This is a material-accounting bug that
+  reports a false shortage; it is not the U-local-03 post-placement-state gap, since a hopper's
+  facing is chosen at placement time.
+- Ruled out: the staged supports. Replacing the former chest support with stone reproduced
+  identically, and the "unmatched stone floor with no stone in inventory" lead recorded in
+  `HoppersFacingScenario` was wrong -- the logged missing material is the hopper itself.
+- Done when: a requested hopper facing is satisfied from a plain hopper item, and the false
+  "missing materials" claim is gone. Consider whether other one-off facing properties
+  (`FACING_HOPPER` and friends) belong in the same set.
 
 ## P0 — crashes, command-wide failure, infinite actions, or player-loss risk
 

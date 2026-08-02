@@ -7,6 +7,28 @@ The headline feature is **automatic restocking**: `#build` can fetch materials f
 you've registered near the build site instead of stalling when it runs out. Along the way a few
 upstream bugs that made long builds painful are also fixed.
 
+## What this fork is trying to be
+
+Three goals, in priority order. They are listed here so a change can be judged against them.
+
+1. **Autonomy over long jobs.** A build or a mine should survive running out of materials, filling
+   its inventory, or being attacked, without a human watching it. Restocking, unloading trips and
+   sheltering all exist for this.
+2. **Correctness on the things that stall.** Upstream's builder/backfill conflicts, placement loops
+   and orientation handling are what turn a long job into a babysitting exercise. Every fix here is
+   expected to arrive with a test that reproduces it — see §7.
+3. **Performance.** Baritone spends real CPU per tick on pathfinding, chunk scanning and placement
+   search, and the cost shows up as stutter on exactly the long jobs goal 1 is about. Two rules:
+   *measure before and after*, and *treat a slowdown as a defect*. The harness makes this concrete —
+   it reports per-scenario tick counts and suite wall clock, so a regression is visible rather than
+   inferred. It has already earned its keep: removing one spurious stand-position constraint took
+   the curated suite from 427s to 203s, which no amount of code reading would have revealed.
+   `UPSTREAM_BUG_BACKLOG.md` T50 (render-distance scanner lag) and T49 (clear-area memory
+   exhaustion) are the standing entries under this goal.
+
+Non-goals: combat, anything that fakes a server-side effect (see the packet rule in the repo
+conventions), and supporting more than one Minecraft version at a time.
+
 ---
 
 ## 1. Shulker box restocking

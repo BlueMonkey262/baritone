@@ -30,15 +30,21 @@ import baritone.api.utils.Helper;
 import baritone.behavior.Behavior;
 import baritone.testing.scenario.DirectionalBuildScenario;
 import baritone.testing.scenario.FuzzPathingScenario;
+import baritone.testing.scenario.HoppersFacingScenario;
 import baritone.testing.scenario.LogsAxesScenario;
 import baritone.testing.scenario.ObserverBuildScenario;
 import baritone.testing.scenario.PathingCourseScenario;
+import baritone.testing.scenario.PistonObserverPairScenario;
+import baritone.testing.scenario.RepeatersDelaysScenario;
 import baritone.testing.scenario.RestockFromBoxScenario;
 import baritone.testing.scenario.SchematicBuildScenario;
 import baritone.testing.scenario.ShelterRetreatDistanceScenario;
 import baritone.testing.scenario.StairsHalvesScenario;
 import baritone.testing.scenario.UnreachableBuildTargetScenario;
 import baritone.testing.scenario.WaterDetourScenario;
+import baritone.testing.scenario.gen.PlacementCase;
+import baritone.testing.scenario.gen.PlacementCaseScenario;
+import baritone.testing.scenario.gen.PlacementCatalog;
 import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
 import net.minecraft.world.level.GameType;
 
@@ -117,13 +123,23 @@ public final class TestingBehavior extends Behavior implements Helper {
         register(LogsAxesScenario::new);
         register(ObserverBuildScenario::new);
         register(RestockFromBoxScenario::new);
+        // Uncurated because it cannot yet fail for the right reason: its facing is horizontal and
+        // its target stands on a floor, so Baritone can satisfy either orientation rule and a pass
+        // proves nothing about them. Promote it once it has a vertical pair.
+        registerUncurated(PistonObserverPairScenario::new);
         // These deliberately reproduce open defects and must not make #testing all fail until the
         // corresponding behavior fixes land.
+        registerUncurated(RepeatersDelaysScenario::new);
+        registerUncurated(HoppersFacingScenario::new);
         registerUncurated(ShelterRetreatDistanceScenario::new);
         registerUncurated(UnreachableBuildTargetScenario::new);
         for (int seed = 1; seed <= FUZZ_COUNT; seed++) {
             final int captured = seed;
             registerUncurated(() -> new FuzzPathingScenario(captured));
+        }
+        for (PlacementCase placementCase : PlacementCatalog.all()) {
+            final PlacementCase captured = placementCase;
+            registerUncurated(() -> new PlacementCaseScenario(captured));
         }
     }
 
