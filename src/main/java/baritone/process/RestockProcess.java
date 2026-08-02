@@ -499,6 +499,40 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         return false;
     }
 
+    @Override
+    public boolean requestTool(Item tool, Predicate<ItemStack> worthKeeping) {
+        Objects.requireNonNull(worthKeeping);
+        if (!Baritone.settings().restockFromBoxes.value || isActive()) {
+            return false;
+        }
+        IRestockBoxCollection collection = boxes();
+        if (collection == null) {
+            return false;
+        }
+        List<BetterBlockPos> found = findCandidates(collection, tool);
+        if (found.isEmpty()) {
+            return false;
+        }
+        // A tool has no block form, and unlike a material there is nothing to give up on later:
+        // the caller stops the job outright when this declines. markUnobtainable tolerates the null.
+        this.wantedState = null;
+        this.wantedItem = tool;
+        this.wantedCount = 1;
+        this.worthKeeping = worthKeeping;
+        // Tools stack to one, so restockExtraStacks reads as "spares", which is what we want here --
+        // walking back to the box for every single pickaxe is the thing this feature exists to avoid.
+        this.fetchTarget = fetchTarget(
+                1,
+                Baritone.settings().restockExtraStacks.value,
+                tool.getDefaultMaxStackSize()
+        );
+        this.candidates = found;
+        this.targetBox = this.candidates.remove(0);
+        startPathing();
+        logDirect(String.format("Fetching a replacement %s from box at %s", itemName(tool), this.targetBox));
+        return true;
+    }
+
     /**
      * Registered boxes that might hold the given item, nearest first.
      * <p>

@@ -146,7 +146,7 @@ public final class InventoryBehavior extends Behavior implements Helper {
             if (stack.isEmpty()) {
                 continue;
             }
-            if (Baritone.settings().itemSaver.value && (stack.getDamageValue() + Baritone.settings().itemSaverThreshold.value) >= stack.getMaxDamage() && stack.getMaxDamage() > 1) {
+            if (ToolSet.isSpent(stack)) {
                 continue;
             }
             if (stack.getItem().components().has(DataComponents.TOOL)) {

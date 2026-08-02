@@ -1212,7 +1212,9 @@ public final class Settings {
     public final Setting<Boolean> censorRanCommands = new Setting<>(false);
 
     /**
-     * Stop using tools just before they are going to break.
+     * Stop using tools just before they are going to break. Baritone will not swing a tool within
+     * itemSaverThreshold durability of breaking, will fetch a replacement from a registered shulker
+     * box if restockFromBoxes is on, and will stop the job and say so if it cannot find one.
      */
     public final Setting<Boolean> itemSaver = new Setting<>(false);
 
@@ -1376,9 +1378,13 @@ public final class Settings {
      * If the builder changes its mind about which goal to path to this many times in a row, stop
      * re-planning for a while and just execute whatever path it currently has.
      * <p>
-     * Baritone has no loop detection for the builder: it reassembles its goal set every tick, so an
-     * unreachable target can be re-picked indefinitely and it stands there recalculating. Committing
-     * to the current route for a moment breaks that cycle. Set to 0 to disable.
+     * Baritone has no loop detection for the builder: it reassembles its goal set every tick, so it
+     * can oscillate between targets and stand there recalculating instead of walking. Committing to
+     * the current route for a moment breaks that cycle. Set to 0 to disable.
+     * <p>
+     * This detects goal <i>churn</i> specifically. A single target that is stably chosen and simply
+     * cannot be reached never changes the goal, so it does not trip this; that case is bounded
+     * separately, by giving the placement a result rather than re-planning it.
      */
     public final Setting<Integer> builderMaxReroutes = new Setting<>(5);
 
