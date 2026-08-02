@@ -250,12 +250,13 @@ public final class ShelterProcess extends BaritoneProcessHelper implements IShel
         if (threat == null || !threat.underAttack()) {
             return false;
         }
-        BetterBlockPos box = nearestBox();
+        BoxSearch search = nearestBoxWithReason();
+        BetterBlockPos box = search.box;
         if (box == null) {
             // Nowhere to run to. Say so once and clear the threat, otherwise every tick spent being
             // hit re-asks and re-logs. The next burst of hits will ask again, which is right: the
             // player may have registered a box in the meantime.
-            logDirect("Under attack, but there's no registered shulker box to retreat to. Use #addbox to register one, or #set shelterOnAttack false.");
+            logDirect("Under attack, but I can't retreat: " + search.reason + ".");
             threat.clearThreat();
             return false;
         }
@@ -558,12 +559,36 @@ public final class ShelterProcess extends BaritoneProcessHelper implements IShel
      * The nearest registered box we haven't been told is gone, or {@code null} if there are none.
      */
     private BetterBlockPos nearestBox() {
+        return nearestBoxWithReason().box;
+    }
+
+    /**
+     * The outcome of a shelter box search, carrying why it failed rather than only that it did.
+     * <p>
+     * Four quite different situations produce no box — nothing registered, everything too far,
+     * everything flagged missing, and world data not loaded — and telling a player "no box is
+     * registered" when thirty are registered forty blocks too far away sends them to run
+     * {@code #addbox}, which then reports that they are all already registered. Under attack is
+     * the worst possible moment to hand someone a diagnosis that is not true.
+     */
+    private static final class BoxSearch {
+        final BetterBlockPos box;
+        /** Null when a box was found; otherwise a player-facing explanation. */
+        final String reason;
+
+        BoxSearch(BetterBlockPos box, String reason) {
+            this.box = box;
+            this.reason = reason;
+        }
+    }
+
+    private BoxSearch nearestBoxWithReason() {
         if (baritone.getWorldProvider() == null || baritone.getWorldProvider().getCurrentWorld() == null) {
-            return null;
+            return new BoxSearch(null, "world data isn't loaded yet");
         }
         IRestockBoxCollection collection = baritone.getWorldProvider().getCurrentWorld().getRestockBoxes();
         if (collection == null) {
-            return null;
+            return new BoxSearch(null, "world data isn't loaded yet");
         }
         BetterBlockPos feet = ctx.playerFeet();
         double shelterMaxDistance = Baritone.settings().shelterMaxRetreatDistance.value;
@@ -573,21 +598,41 @@ public final class ShelterProcess extends BaritoneProcessHelper implements IShel
         }
         // Restocking is a considered trip made when convenient; sheltering happens while taking
         // damage, so a distance that's merely inefficient for restocking is dangerous in retreat.
-        double maxDistSq = Math.pow(Math.min(shelterMaxDistance, restockMaxDistance), 2);
+        double limit = Math.min(shelterMaxDistance, restockMaxDistance);
+        double maxDistSq = Math.pow(limit, 2);
         BetterBlockPos best = null;
         double bestDistSq = Double.MAX_VALUE;
+        int registered = 0;
+        int missing = 0;
+        // tracked past the limit purely so the failure can name a real distance to compare against
+        double nearestAnyDistSq = Double.MAX_VALUE;
         for (IRestockBox box : collection.getAllBoxes()) {
+            registered++;
             if (box.isMissing()) {
+                missing++;
                 continue;
             }
             double distSq = box.getLocation().distSqr(feet);
+            nearestAnyDistSq = Math.min(nearestAnyDistSq, distSq);
             if (distSq > maxDistSq || distSq >= bestDistSq) {
                 continue;
             }
             bestDistSq = distSq;
             best = box.getLocation();
         }
-        return best;
+        if (best != null) {
+            return new BoxSearch(best, null);
+        }
+        if (registered == 0) {
+            return new BoxSearch(null, "no shulker box is registered in this dimension. Use #addbox to register one, or #set shelterOnAttack false");
+        }
+        if (missing == registered) {
+            return new BoxSearch(null, String.format(
+                    "all %d registered box(es) are marked missing. Check #listboxes", registered));
+        }
+        return new BoxSearch(null, String.format(
+                "the nearest of %d registered box(es) is %d blocks away, past the %d block retreat limit. Raise shelterMaxRetreatDistance, or register a box closer to where you're working",
+                registered, Math.round(Math.sqrt(nearestAnyDistSq)), Math.round(limit)));
     }
 
     /**
