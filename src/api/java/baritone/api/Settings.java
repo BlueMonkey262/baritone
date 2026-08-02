@@ -731,6 +731,15 @@ public final class Settings {
     public final Setting<Integer> shelterThreatMemoryTicks = new Setting<>(200);
 
     /**
+     * Maximum distance, in blocks, for a registered shulker box to count as shelter during a
+     * retreat. This is separate from {@link #restockMaxDistance}, which controls how far Baritone
+     * may travel for restocking.
+     *
+     * @see #shelterOnAttack
+     */
+    public final Setting<Double> shelterMaxRetreatDistance = new Setting<>(64.0D);
+
+    /**
      * Whether to empty the inventory into the box we retreated to.
      * <p>
      * On by default: we've made the walk anyway, and rubble left in the inventory is rubble scattered

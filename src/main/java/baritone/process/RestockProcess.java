@@ -621,7 +621,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             behavior.resetSync();
             return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
         }
-        return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+        return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
     }
 
     /**
@@ -677,7 +677,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (!reachable.isPresent()) {
             // drifted out of range somehow; walk back
             startPathing();
-            return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+            return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
         }
         baritone.getLookBehavior().updateTarget(reachable.get(), true);
         if (this.targetBox.equals(ctx.getSelectedBlock().orElse(null))) {
@@ -1015,7 +1015,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
             if (!this.candidates.isEmpty()) {
                 this.targetBox = this.candidates.remove(0);
                 startPathing();
-                return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+                return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
             }
             logDirect("Finished indexing " + this.indexedThisRun + " shulker box(es). Use #listboxes to see what's where.");
             return finishTrip();
@@ -1035,7 +1035,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
                 } else {
                     this.targetBox = this.candidates.remove(0);
                     startPathing();
-                    return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+                    return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
                 }
             }
             if (this.freedThisTrip == 0) {
@@ -1052,7 +1052,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (!this.candidates.isEmpty() && !this.tookAnything) {
             this.targetBox = this.candidates.remove(0);
             startPathing();
-            return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+            return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
         }
         return finishTrip();
     }
@@ -1072,7 +1072,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         if (!this.candidates.isEmpty()) {
             this.targetBox = this.candidates.remove(0);
             startPathing();
-            return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.SET_GOAL_AND_PATH);
+            return new PathingCommand(goalForBox(this.targetBox), PathingCommandType.FORCE_REVALIDATE_GOAL_AND_PATH);
         }
         if (this.depositOnly && this.freedThisTrip == 0) {
             // nothing was unloaded anywhere, so let the interrupted process stop asking

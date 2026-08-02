@@ -3,7 +3,7 @@
   "scenarios": {
     "build-directional": {
       "maxTicks": 83,
-      "medianTicks": 82,
+      "medianTicks": 83,
       "minTicks": 82,
       "runs": 3,
       "status": "PASS",
@@ -14,7 +14,7 @@
     "build-observers": {
       "maxTicks": 104,
       "medianTicks": 104,
-      "minTicks": 104,
+      "minTicks": 103,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -22,9 +22,19 @@
       ]
     },
     "build-schematic": {
-      "maxTicks": 374,
-      "medianTicks": 373,
-      "minTicks": 357,
+      "maxTicks": 385,
+      "medianTicks": 359,
+      "minTicks": 354,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "hoppers-facing": {
+      "maxTicks": 98,
+      "medianTicks": 98,
+      "minTicks": 96,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -42,9 +52,9 @@
       ]
     },
     "pathing-course": {
-      "maxTicks": 252,
-      "medianTicks": 251,
-      "minTicks": 249,
+      "maxTicks": 253,
+      "medianTicks": 250,
+      "minTicks": 248,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -52,9 +62,9 @@
       ]
     },
     "restock-from-box": {
-      "maxTicks": 476,
-      "medianTicks": 463,
-      "minTicks": 439,
+      "maxTicks": 448,
+      "medianTicks": 448,
+      "minTicks": 447,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -62,7 +72,7 @@
       ]
     },
     "stairs-halves": {
-      "maxTicks": 455,
+      "maxTicks": 456,
       "medianTicks": 455,
       "minTicks": 455,
       "runs": 3,
@@ -102,5 +112,5 @@
       ]
     }
   },
-  "wallClockSeconds": 203
+  "wallClockSeconds": 208
 }
