@@ -1378,9 +1378,13 @@ public final class Settings {
      * If the builder changes its mind about which goal to path to this many times in a row, stop
      * re-planning for a while and just execute whatever path it currently has.
      * <p>
-     * Baritone has no loop detection for the builder: it reassembles its goal set every tick, so an
-     * unreachable target can be re-picked indefinitely and it stands there recalculating. Committing
-     * to the current route for a moment breaks that cycle. Set to 0 to disable.
+     * Baritone has no loop detection for the builder: it reassembles its goal set every tick, so it
+     * can oscillate between targets and stand there recalculating instead of walking. Committing to
+     * the current route for a moment breaks that cycle. Set to 0 to disable.
+     * <p>
+     * This detects goal <i>churn</i> specifically. A single target that is stably chosen and simply
+     * cannot be reached never changes the goal, so it does not trip this; that case is bounded
+     * separately, by giving the placement a result rather than re-planning it.
      */
     public final Setting<Integer> builderMaxReroutes = new Setting<>(5);
 

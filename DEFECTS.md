@@ -26,7 +26,7 @@ are intentionally not triaged here.
 | H9 | sol-high-review.md | Capacity failure retries after dumping | high | FORK | FIXED | None for full-inventory case |
 | H10 | sol-high-review.md | All configured substitutes count as wanted | high | FORK | FIXED | None |
 | M1 | sol-high-review.md | Re-indexing clears stale give-ups | medium | FORK | FIXED | None |
-| M2 | sol-high-review.md | Box switches cancel the old path | medium | FORK | OPEN | None |
+| M2 | sol-high-review.md | Box switches cancel the old path | medium | FORK | FIXED | None (sketch recorded below) |
 | M3 | sol-high-review.md | Restock pathing has a no-progress guard | medium | FORK | FIXED | None |
 | M4 | sol-high-review.md | Eating coordinates with other work | medium | FORK | PARTIAL | None |
 | M5 | sol-high-review.md | New settings and radius are bounded | medium | FORK | PARTIAL | RestockProcessTest (arithmetic only) |
@@ -35,8 +35,8 @@ are intentionally not triaged here.
 | M8 | sol-high-review.md | CI and regression signal were restored | medium | FORK | FIXED | CI workflow; harness is manual |
 | L1 | sol-high-review.md | Invalid indexboxes arguments are rejected | low | FORK | FIXED | None |
 | L2 | sol-high-review.md | Unknown persisted items force re-indexing | low | FORK | FIXED | None |
-| L3 | sol-high-review.md | Fork notes still omit auto-eat details | low | FORK | PARTIAL | None |
-| L4 | sol-high-review.md | Reroute documentation contradicts itself | low | FORK | OPEN | None |
+| L3 | sol-high-review.md | Fork notes still omit auto-eat details | low | FORK | FIXED | None (text change) |
+| L4 | sol-high-review.md | Reroute documentation contradicts itself | low | FORK | FIXED | None (text change) |
 | L5 | sol-high-review.md | Runtime artifacts do not match HEAD | low | FORK | PARTIAL | None |
 | L6 | sol-high-review.md | Ten-step lookahead is only a heuristic | low | FORK | INVALID | None |
 | UB1 | UNTRACKED_BUG_REVIEW.md | Refused beds become retryable | high | FORK | FIXED | None |
@@ -159,12 +159,15 @@ coverage: None.
 
 ## M2 — Switching boxes does not immediately rescope the old paused path
 
-This remains OPEN. Box transitions still return `SET_GOAL_AND_PATH` at
-`RestockProcess.java:1012-1019` and `RestockProcess.java:1050-1056`, while
-`PathingBehavior.secretInternalSetGoalAndPath` refuses to calculate or replace the segment when a
-current path remains at `PathingBehavior.java:262-284`. A path paused on the old box can therefore
-survive the target switch. Origin is FORK: the callers and `RestockProcess` are fork code. Test
-coverage: None.
+FIXED in `edc086c7`. Box transitions returned `SET_GOAL_AND_PATH`, which
+`PathingBehavior.secretInternalSetGoalAndPath` declines outright while a path is live
+(`if (current != null) return false`), so the process could retarget while the pathing layer kept
+executing the route to the previous box — walking to the wrong box, or standing still, after one was
+rejected. Origin is FORK: the callers and `RestockProcess` are fork code.
+
+Test coverage: None. A scenario sketch is recorded below; it was not written because the fix landed
+against a reasoned trace rather than a reproduction, which is the weaker of the two kinds of
+evidence this ledger accepts.
 
 ## M3 — PATHING has no progress watchdog
 
@@ -233,18 +236,19 @@ coverage: None.
 
 ## L3 — Fork notes omit changes added after the old review
 
-The source's broad claim is only partly true at HEAD. `FORK-NOTES.md` now documents orientation and
-shulker dumping at `FORK-NOTES.md:204-299` and `FORK-NOTES.md:98-140`, but its new/changed-file
-list still omits `EatBehavior` at `FORK-NOTES.md:303-323`, and there is no auto-eat section. That
-contradicts README's promise that the notes cover everything fork-specific at `README.md:3-6`.
-Status is PARTIAL. Origin is FORK. Test coverage: None.
+FIXED. `FORK-NOTES.md` gained an auto-eat section (§2b) covering why the use key is held for the
+whole meal, why the tick ordering makes that safe, and why `EatBehavior` is registered last;
+`EatBehavior` is now listed among the new files, along with the two files §2a changed. README's
+promise that the notes cover everything fork-specific (`README.md:3-6`) therefore holds again.
+Origin is FORK. Test coverage: None; this is a text change.
 
 ## L4 — Reroute documentation is internally inconsistent
 
-This remains OPEN as a documentation defect. The setting says the reroute limit addresses an
-unreachable target at `src/api/java/baritone/api/Settings.java:1367-1374`, while the fork notes say
-stable unreachable goals do not trip it at `FORK-NOTES.md:287-299`. The code/harness now demonstrates
-that the distinction matters. Origin is FORK. Test coverage: None.
+FIXED as a documentation defect. `builderMaxReroutes` counts goal *changes*, so the fork notes were
+correct and the setting's javadoc — which is also its `#help` text — was not: a stably chosen
+unreachable target never changes the goal and so never trips the clamp. The javadoc now says so, and
+points at the separate bounded-result handling for the unreachable case (`d0ba7b6a`, U-local-01),
+which is what actually covers it. Origin is FORK. Test coverage: None; this is a text change.
 
 ## L5 — Ignored artifacts are stale and runtime evidence is missing
 
