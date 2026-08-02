@@ -1212,7 +1212,9 @@ public final class Settings {
     public final Setting<Boolean> censorRanCommands = new Setting<>(false);
 
     /**
-     * Stop using tools just before they are going to break.
+     * Stop using tools just before they are going to break. Baritone will not swing a tool within
+     * itemSaverThreshold durability of breaking, will fetch a replacement from a registered shulker
+     * box if restockFromBoxes is on, and will stop the job and say so if it cannot find one.
      */
     public final Setting<Boolean> itemSaver = new Setting<>(false);
 

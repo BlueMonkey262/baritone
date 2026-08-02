@@ -36,6 +36,8 @@ public final class BlockBreakHelper {
     private static final int BASE_BREAK_DELAY = 1;
     /** Ticks between "not mining, item in use" reports. */
     private static final int USING_ITEM_LOG_INTERVAL_TICKS = 60;
+    /** Ticks between "not mining, tool nearly broken" reports. */
+    private static final int SPENT_TOOL_LOG_INTERVAL_TICKS = 60;
 
     private final Baritone baritone;
     private final IPlayerContext ctx;
@@ -43,6 +45,20 @@ public final class BlockBreakHelper {
     private int breakDelayTimer = 0;
     /** Consecutive ticks mining has been suppressed by an item being in use. */
     private int usingItemTicks = 0;
+    /** Consecutive ticks mining has been suppressed because the held tool is nearly broken. */
+    private int spentToolTicks = 0;
+
+    /**
+     * How long mining has been blocked by {@code itemSaver} refusing to swing the held tool.
+     * <p>
+     * Read by the processes that drive mining so they can escalate -- fetch a replacement, or give
+     * up and say why -- rather than leaving the bot pointed at a block it has decided not to hit.
+     *
+     * @return consecutive ticks suppressed, or {@code 0} if mining is not currently blocked
+     */
+    public int getSpentToolTicks() {
+        return spentToolTicks;
+    }
 
     BlockBreakHelper(Baritone baritone) {
         this.baritone = baritone;
@@ -93,6 +109,24 @@ public final class BlockBreakHelper {
             }
             usingItemTicks = 0;
         }
+        if (isLeftClick && ctx.player() != null && ToolSet.isSpent(ctx.player().getMainHandItem())) {
+            // Every block break in Baritone reaches this method -- the eight places that force
+            // CLICK_LEFT only raise a flag, and two of them (MovementTraverse's "something in the
+            // way" branch and MovementPillar's break-above) never select a tool at all, so they
+            // swing whatever is held regardless of autoTool. Refusing here is therefore the only
+            // check that covers all of them, and the only one autoTool cannot bypass.
+            spentToolTicks++;
+            if (Baritone.settings().chatDebug.value && spentToolTicks % SPENT_TOOL_LOG_INTERVAL_TICKS == 1) {
+                Helper.HELPER.logDirect(String.format(
+                        "Not mining: %s is nearly broken and itemSaver is on (%d ticks).",
+                        ctx.player().getMainHandItem().getItem().getName(ctx.player().getMainHandItem()).getString(),
+                        spentToolTicks
+                ));
+            }
+            stopBreakingBlock();
+            return;
+        }
+        spentToolTicks = 0;
         if (breakDelayTimer > 0) {
             breakDelayTimer--;
             return;

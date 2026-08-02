@@ -56,6 +56,14 @@ import static baritone.api.pathing.movement.ActionCosts.COST_INF;
  */
 public final class MineProcess extends BaritoneProcessHelper implements IMineProcess {
 
+    /**
+     * How long mining must stay blocked on a nearly-broken tool before we act on it.
+     * <p>
+     * A swap takes a tick or two to reach the server, so the suppression counter ticks up briefly
+     * during ordinary tool changes. Waiting a second first keeps that from reading as a shortage.
+     */
+    private static final int SPENT_TOOL_GRACE_TICKS = 20;
+
     private BlockOptionalMetaLookup filter;
     private List<BlockPos> knownOreLocations;
     private List<BlockPos> blacklist; // inaccessible
@@ -104,6 +112,24 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
                 // the restock process outranks us and takes control next tick
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
+        }
+        // itemSaver has stopped us swinging a tool that is about to break. Fetch a replacement if a
+        // registered box has one; otherwise stop and say so, because standing in front of a block we
+        // have decided not to hit is indistinguishable from working and can last all night.
+        if (baritone.getInputOverrideHandler().getBlockBreakHelper().getSpentToolTicks() > SPENT_TOOL_GRACE_TICKS) {
+            ItemStack spent = ctx.player().getMainHandItem();
+            String name = spent.getItem().getName(spent).getString();
+            IRestockProcess restock = baritone.getRestockProcess();
+            if (restock != null && restock.requestTool(spent.getItem(), this::inventoryWants)) {
+                // the restock process outranks us and takes control next tick
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+            }
+            logDirect("Stopping: " + name + " is nearly broken and no registered box has a replacement");
+            if (Baritone.settings().notificationOnMineFail.value) {
+                logNotification(name + " is nearly broken and no registered box has a replacement", true);
+            }
+            cancel();
+            return null;
         }
         if (calcFailed) {
             if (!knownOreLocations.isEmpty() && Baritone.settings().blacklistClosestOnFailure.value) {

@@ -85,6 +85,12 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
     private static final int MISSING_LOG_INTERVAL_TICKS = 100;
     /** How long an unreachable placement target stays out of the goal set. */
     private static final int UNREACHABLE_RETRY_TICKS = 100;
+    /**
+     * How long breaking must stay blocked on a nearly-broken tool before we act on it. A swap takes
+     * a tick or two to reach the server, so brief suppression during an ordinary tool change is
+     * normal and should not read as a shortage.
+     */
+    private static final int SPENT_TOOL_GRACE_TICKS = 20;
 
     /**
      * Properties the player picks when placing a block, by where they stand and which face they
@@ -906,6 +912,21 @@ public final class BuilderProcess extends BaritoneProcessHelper implements IBuil
                 // the restock process outranks us and takes control next tick
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
             }
+        }
+        // itemSaver has stopped us swinging a tool that is about to break. A build breaks as well as
+        // places, so this stalls the job just as a missing material would; fetch a replacement if a
+        // registered box has one, and otherwise stop rather than stand in front of the block.
+        if (baritone.getInputOverrideHandler().getBlockBreakHelper().getSpentToolTicks() > SPENT_TOOL_GRACE_TICKS) {
+            ItemStack spent = ctx.player().getMainHandItem();
+            String name = spent.getItem().getName(spent).getString();
+            IRestockProcess restock = restockProcess();
+            if (restock != null && restock.requestTool(spent.getItem(), this::inventoryWants)) {
+                // the restock process outranks us and takes control next tick
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+            }
+            logDirect("Stopping the build: " + name + " is nearly broken and no registered box has a replacement");
+            onLostControl();
+            return null;
         }
         if (Baritone.settings().buildInLayers.value) {
             if (realSchematic == null) {
