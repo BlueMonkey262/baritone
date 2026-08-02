@@ -1,0 +1,18 @@
+Continuo
+Copyright (c) 2026
+
+This product is a modified version of Baritone.
+
+Original work: cabaletta/baritone — https://github.com/cabaletta/baritone
+Copyright (c) leijurv, Brady, and the Baritone contributors.
+
+Baritone is free software licensed under the GNU Lesser General Public License
+version 3 with its additional term. Continuo is distributed under the same licence; see LICENSE for the
+full text.
+
+Continuo modifies and adds to the original work. The changes are described in
+FORK-NOTES.md, and the complete corresponding source is published alongside
+every release.
+
+Continuo is not affiliated with, endorsed by, or supported by the Baritone
+project. Please do not report Continuo issues to cabaletta/baritone.

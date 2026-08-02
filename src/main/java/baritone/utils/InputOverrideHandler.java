@@ -48,7 +48,7 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
 
     public InputOverrideHandler(Baritone baritone) {
         super(baritone);
-        this.blockBreakHelper = new BlockBreakHelper(baritone.getPlayerContext());
+        this.blockBreakHelper = new BlockBreakHelper(baritone);
         this.blockPlaceHelper = new BlockPlaceHelper(baritone.getPlayerContext());
     }
 
@@ -85,6 +85,14 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
     @Override
     public final void onTick(TickEvent event) {
         if (event.getType() == TickEvent.Type.OUT) {
+            // OUT includes disconnects, death/respawn transitions, and the main menu. No process
+            // can reliably run another tick to release what it forced, so do it at the input
+            // boundary and give any surviving player object its normal keyboard input back.
+            clearAllKeys();
+            blockBreakHelper.stopBreakingBlock();
+            if (ctx.player() != null && ctx.player().input.getClass() == PlayerMovementInput.class) {
+                ctx.player().input = new KeyboardInput(ctx.minecraft().options);
+            }
             return;
         }
         if (isInputForcedDown(Input.CLICK_LEFT)) {

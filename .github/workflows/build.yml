@@ -1,0 +1,77 @@
+# Continuous integration for the fork.
+#
+# Scope, deliberately: this covers the unit suite and that every loader still compiles. It does NOT
+# cover the in-game harness (`#testing`), which needs a real client, a world, and several thousand
+# ticks of sustained control -- see docs and ROADMAP.md. That suite is a manual pre-merge gate and
+# its result is pasted into the PR. Anything CI can catch, CI should catch; nobody should believe a
+# green tick here means the builder still works.
+name: build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch makes the in-flight run irrelevant.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          # Must match gradle.properties#java_version.
+          java-version: '25'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew :test --no-daemon
+
+      - name: Upload test report
+        # The report is most wanted exactly when the step before it failed.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/reports/tests/test
+          if-no-files-found: ignore
+
+  compile:
+    name: compile (${{ matrix.loader }})
+    runs-on: ubuntu-latest
+    strategy:
+      # One loader breaking should not hide whether the others do.
+      fail-fast: false
+      matrix:
+        # Keep in step with gradle.properties#available_loaders.
+        loader: [fabric, forge, neoforge, tweaker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile
+        # Compile rather than build: `build` drags in ProGuard via createDist, which needs a JDK
+        # shipping jmods and is a packaging concern, not a "does this still compile" one.
+        run: ./gradlew :${{ matrix.loader }}:compileJava --no-daemon

@@ -41,6 +41,13 @@ public class CompositeSchematic extends AbstractSchematic {
         recalcArr();
     }
 
+    /**
+     * @return The pieces this schematic is made of, in the order they were added
+     */
+    public List<CompositeSchematicEntry> getSchematics() {
+        return java.util.Collections.unmodifiableList(schematics);
+    }
+
     public void put(ISchematic extra, int x, int y, int z) {
         schematics.add(new CompositeSchematicEntry(extra, x, y, z));
         recalcArr();

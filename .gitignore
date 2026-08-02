@@ -43,4 +43,12 @@ mapping
 libs/lwjgl-platform-2.9.4-nightly-20150209-natives-osx.jar
 libs/java-objc-bridge-1.1.jar
 
-mapping
+# Local-only review doc. Deliberately not published; CLAUDE.md references it as a working
+# inventory, and it stays on the author's machine.
+sol-high-review.md
+
+# Agent/editor scratch that must never reach a public repo
+.claude/
+.codex/
+.aider*
+*.log
