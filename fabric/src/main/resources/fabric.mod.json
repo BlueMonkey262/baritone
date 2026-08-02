@@ -3,8 +3,8 @@
   "id": "baritone",
   "version": "${version}",
 
-  "name": "Baritone",
-  "description": "Google Maps for Blockgame",
+  "name": "Continuo",
+  "description": "Keeps long Minecraft jobs running through shortages, full inventories, and attacks.",
   "authors": [
     "leijurv", "Brady"
   ],

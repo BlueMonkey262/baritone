@@ -1,9 +1,9 @@
-# Roadmap: private fork → Baritone+
+# Roadmap: Continuo
 
 Target end state: a **publicly released mod** with its own identity, versioned releases, and docs
 written for someone who is not the author.
 
-The fork's three goals — autonomy over long jobs, correctness on the things that stall, and
+Continuo's three goals — autonomy over long jobs, correctness on the things that stall, and
 **performance** — are stated in `FORK-NOTES.md`. Performance is a first-class goal as of
 2026-08-01, with two rules: measure before and after, and treat a slowdown as a defect. Phase 2a's
 baseline diff is what makes that enforceable, so it should carry suite wall clock and per-scenario
@@ -18,9 +18,9 @@ fix without a test") presumes working test infrastructure. So:
 
 | Order | Phase | Why here |
 |---|---|---|
-| 1 | 0 — honest tree | ✅ item 1 done |
-| 2 | **2a — trustworthy signal** | A red suite is not a regression net. Must precede the fixes it would verify. |
-| 3 | 1 — defect debt | Each fix now lands against a green baseline and a differ that shows what moved |
+| 1 | 0 — honest tree | ✅ done |
+| 2 | 2a — trustworthy signal | ✅ **done 2026-08-01** — unit suite green, curated suite green, CI, baseline differ |
+| 3 | **1 — defect debt** | ← next. Each fix now lands against a green baseline and a differ that shows what moved |
 | 4 | 2b — coverage depth | Interleaved with Phase 1 by the no-fix-without-a-test rule, finished after |
 | 5 | 3 — product | Unchanged |
 | 6 | 4 — features | Unchanged |
@@ -146,27 +146,40 @@ depth is legible.
      `build-observers` pass while quietly halving suite throughput and breaking `logs-axes`. A
      green target scenario is not evidence of a good fix — which is exactly what item 4's baseline
      diff is for.
-2. **Refactor the box estimate to a pure helper**, killing the three `RestockBoxEstimateTest`
-   failures without needing a Minecraft bootstrap. `RestockProcessTest#fetchTarget` is the pattern.
-3. **CI.** GitHub Actions running `:test` plus `compileJava` for all four loaders on push and PR.
-   None exist today (`sol` M8 flagged their removal). This is what makes breakage self-reporting.
-4. **A committed baseline and a differ for the in-game suite.** New work, and the piece that most
-   directly serves "we know when stuff breaks". `parallel_run.py` already emits
-   `dist/testing/parallel-latest.json`; add `testing/baseline.json` under version control and a
-   script that diffs a fresh run against it. The output should read `stairs-halves: 7/8 → 5/8`, not
-   a wall of statuses to eyeball. Regressions in *uncurated* scenarios become visible this way too,
-   which is where most known-defect movement will show up.
+2. ~~**Refactor the box estimate to a pure helper.**~~ **Done 2026-08-01.** The only
+   Minecraft-dependent line was `Item#getDefaultMaxStackSize`; the rounding, saturation and
+   overflow behaviour the tests actually assert is pure. Extracted as
+   `IRestockBox.estimatedUsedSlots(Map<T,Integer>, ToIntFunction<T>)`, with the `default` method
+   passing `Item::getDefaultMaxStackSize`. **`./gradlew test` is green: 108 tests, 0 failures**,
+   for the first time. Two cases were added while the arithmetic was exposed — a sub-one stack size
+   must not divide by zero, and the int-overflow case now says in the test why it matters.
+3. ~~**CI.**~~ **Done 2026-08-01.** `.github/workflows/build.yml`: `:test` plus
+   `:<loader>:compileJava` across a `fabric/forge/neoforge/tweaker` matrix, on push, PR and manual
+   dispatch, with `fail-fast: false` so one broken loader does not mask the rest, concurrency
+   cancellation, and the test report uploaded on failure. It compiles rather than builds, because
+   `build` drags in ProGuard via `createDist` — a packaging concern, not a "does this compile" one.
+   All four loader tasks were verified to exist and compile locally before the workflow claimed to
+   run them.
+4. ~~**A committed baseline and a differ.**~~ **Done 2026-08-01.**
+   `scripts/testing/diff_baseline.py` against `scripts/testing/baseline.json` (currently 10/10,
+   203s). It aggregates the per-instance rows a curated run produces, so it reports verdict changes,
+   per-scenario median tick changes, suite wall clock, and — free from the aggregation — scenarios
+   whose instances disagreed with each other, which is what a marginal case looks like *before* it
+   fails. A scenario counts as passing only if it passed on every instance.
 
-   **Carry timing, not just verdicts.** Per-scenario ticks and suite wall clock are already in the
-   JSON, and they are the only automated performance signal this project has. The reverted
-   `acceptableFacings` change was caught because the suite went 203s → 427s; a differ that reported
-   only pass/fail would have shown `logs-axes` flaking and hidden the cause. Flag a scenario whose
-   tick count moves more than some threshold even when it still passes.
-5. **Document the split gate:** CI covers the unit suite and compilation; the in-game suite is a
-   one-command manual gate before a release or a risky merge, and its diff is pasted into the PR.
+   Verified by replaying the real regression: it reports `logs-axes PASS -> TIMEOUT`, the suite
+   `203 -> 427 (+110%)`, **and** `build-schematic ticks +80%` — a scenario that stayed green and
+   got much slower, which pass/fail alone would have hidden entirely. Verdict regressions exit 1;
+   timing alone is a note unless `--fail-on-timing`, on the theory that a gate which blocks on the
+   noisiest signal gets switched off within a week.
+5. ~~**Document the split gate.**~~ **Done 2026-08-01.** In `FORK-NOTES.md` §7 and `CLAUDE.md`:
+   CI is everything a machine can check unattended; the in-game suite is a two-command manual gate
+   whose diff is pasted into the PR. Both say plainly that a green tick in CI means the code
+   compiles and the pure logic holds, and says nothing about whether the builder still builds.
 
-**Exit criterion: `./gradlew test` green, curated `#testing all` green, CI enforcing both, and a
-baseline diff that names what changed.** That is the regression net; Phase 1 is done against it.
+**Exit criterion — met 2026-08-01.** `./gradlew test` green (108/0), curated suite green (30/30
+across three clients, 203s), CI enforcing the automatable half, and a baseline differ that names
+what changed including timing. **The regression net exists; Phase 1 is done against it.**
 
 ## Phase 2b — Coverage depth
 
@@ -211,7 +224,7 @@ the process state machines. Spend coverage effort there before adding placement 
   cabaletta and the upstream contributors.
 - **Do not rename the `baritone.api` package or the mod id.** Other mods compile against
   `baritone.api`, and `src/api` is deliberately not obfuscated so they can. Staying a drop-in
-  replacement is the fork's strongest distribution argument. Brand at the README, jar name, and
+replacement is Continuo's strongest distribution argument. Brand at the README, jar name, and
   release level instead.
 - **Public API is now a contract.** `sol` M7 flagged the new `IRestockBox`,
   `IRestockBoxCollection`, `IRestockProcess`, `IShelterProcess` and the `IBuilderProcess` /
@@ -228,7 +241,7 @@ the process state machines. Spend coverage effort there before adding placement 
 - Release workflow producing all four loaders × three variants, with checksums, plus a real
   `CHANGELOG.md`.
 - **State the support policy plainly: Minecraft 26.1.2 only.** The README currently inherits
-  upstream's 1.12.2–1.21.3 badge wall, which is false for this fork and the fastest way to earn bad
+  upstream's 1.12.2–1.21.3 badge wall, which is false for Continuo and the fastest way to earn bad
   issues.
 
 ### Documentation
@@ -244,7 +257,7 @@ Eight working docs sit at the repo root, all of them internal notes. Restructure
 | — | New: settings reference, `#addbox`/restock guide, harness guide, `CONTRIBUTING.md` |
 
 Retarget `.github/ISSUE_TEMPLATE` (currently upstream's) and add the line that saves everyone's
-time: *do not report fork bugs to cabaletta/baritone.*
+time: *do not report Continuo bugs to cabaletta/baritone.*
 
 ### Upstream relationship
 
@@ -254,7 +267,7 @@ walking) is a one-line fix with a clean diagnosis and a scenario behind it. **Of
 public fork whose author contributes fixes back is credible; one that only takes is not. It also
 shrinks the permanent rebase surface.
 
-Decide and write down the upstream-tracking cadence now — the fork is branched from `26.1` and
+Decide and write down the upstream-tracking cadence now — Continuo is branched from `26.1` and
 upstream has moved on. Keeping fork commits atomic and rebase-friendly is cheap now and expensive
 to retrofit.
 

@@ -1,13 +1,13 @@
-# Fork notes
+# Continuo notes
 
-Private fork of [cabaletta/baritone](https://github.com/cabaletta/baritone), branched from `26.1`
+Continuo is a private fork of [cabaletta/baritone](https://github.com/cabaletta/baritone), branched from `26.1`
 (Minecraft 26.1.2). Everything below is additional to upstream.
 
 The headline feature is **automatic restocking**: `#build` can fetch materials from shulker boxes
 you've registered near the build site instead of stalling when it runs out. Along the way a few
 upstream bugs that made long builds painful are also fixed.
 
-## What this fork is trying to be
+## What Continuo is trying to be
 
 Three goals, in priority order. They are listed here so a change can be judged against them.
 
@@ -378,7 +378,7 @@ watch for on first use:
 ## 7. In-game test harness
 
 `#testing` runs scenarios against a live world and writes a report. It exists because the things
-this fork changes — restocking, sheltering, builder/backfill arbitration — are exactly the things
+Continuo changes — restocking, sheltering, builder/backfill arbitration — are exactly the things
 the JUnit suite cannot reach: they only mean anything with a server, a world and a process holding
 control for several thousand ticks.
 
@@ -391,6 +391,34 @@ control for several thousand ticks.
 #testing cancel                stop
 #testing autorun               run the whole suite on next world join, then quit the game
 ```
+
+### What gates what
+
+Two gates, and the split is deliberate because one of them cannot be automated.
+
+**CI** (`.github/workflows/build.yml`) runs the unit suite and compiles all four loaders on every
+push and pull request. It is fast and it is the whole of what a machine can check unattended. A
+green tick there says the code compiles and the pure logic holds; it says nothing about whether the
+builder still builds.
+
+**The in-game suite is a manual gate**, run before a release or a risky merge, because it needs a
+real client, a world, and several thousand ticks of sustained control:
+
+```bash
+python3 scripts/testing/parallel_run.py -n 3 --timeout 1800 --curated \
+  --jar dist/continuo-unoptimized-fabric-<version>.jar
+python3 scripts/testing/diff_baseline.py            # what changed vs the committed baseline
+```
+
+`diff_baseline.py` compares against `scripts/testing/baseline.json` and reports verdict changes,
+per-scenario tick changes, suite wall clock, and scenarios whose instances disagreed with each
+other. It exits non-zero on a verdict regression, so it can gate a merge; paste its output into the
+PR. Refresh the baseline with `--update` when a change is meant to move it, and say so in the commit
+message.
+
+Read the timing output, not just the verdicts. Performance is a goal of Continuo, and the one
+regression that has actually slipped through so far was visible in wall clock (203s → 427s) while
+the verdicts showed only an unrelated scenario flaking.
 
 Singleplayer with cheats only, and it will rewrite terrain, clear your inventory and change your
 gamemode. **Use a world you do not care about.** It refuses to start on a server rather than
