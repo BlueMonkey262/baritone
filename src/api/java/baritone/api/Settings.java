@@ -696,6 +696,31 @@ public final class Settings {
     public final Setting<Integer> shulkerDumpKeepThrowawayStacks = new Setting<>(1);
 
     /**
+     * Items that may be deposited even though they are not placeable blocks.
+     * <p>
+     * A deposit trip normally refuses anything that is not a {@link net.minecraft.world.item.BlockItem},
+     * and that refusal is doing real work: it is what stops a trip filing away your diamonds, totems,
+     * ender pearls and enchanted books along with the cobblestone. Loosening it would be a bad trade.
+     * <p>
+     * But it also catches the bulk drops a long mine actually produces. Raw ore and flint stack up by
+     * the hundreds while digging, are not placeable, and are exactly what you want in a box rather
+     * than in your hotbar. So they are named here explicitly instead: an allowlist that grows one
+     * considered item at a time, rather than a hole that lets everything through.
+     * <p>
+     * Only consulted on a deposit; the active job's own materials are still kept regardless, so
+     * mining for raw iron will not deposit the raw iron you are mining for.
+     *
+     * @see #shulkerDump
+     * @see #restockDumpWhenFreeSlotsBelow
+     */
+    public final Setting<List<Item>> depositableBulkItems = new Setting<>(new ArrayList<>(Arrays.asList(
+            Items.RAW_IRON,
+            Items.RAW_COPPER,
+            Items.RAW_GOLD,
+            Items.FLINT
+    )));
+
+    /**
      * When hostile mobs start actually hurting us during a build or mine, stop working, retreat to a
      * registered shulker box, unload, and -- if it's night -- find a bed and sleep it off.
      * <p>

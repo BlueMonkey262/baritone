@@ -30,6 +30,7 @@ import baritone.api.utils.Helper;
 import baritone.behavior.Behavior;
 import baritone.testing.scenario.AddBoxWrongOpenMenuScenario;
 import baritone.testing.scenario.DirectionalBuildScenario;
+import baritone.testing.scenario.DepositBulkItemsScenario;
 import baritone.testing.scenario.DumpJunkOnlyScenario;
 import baritone.testing.scenario.DumpNeverStowsShulkersScenario;
 import baritone.testing.scenario.FuzzPathingScenario;
@@ -137,6 +138,7 @@ public final class TestingBehavior extends Behavior implements Helper {
         register(LogsAxesScenario::new);
         register(ObserverBuildScenario::new);
         register(RestockFromBoxScenario::new);
+        registerUncurated(DepositBulkItemsScenario::new);
         registerUncurated(RestockMultipleBoxesScenario::new);
         registerUncurated(RestockEmptyIndexedBoxScenario::new);
         registerUncurated(RestockTwoMaterialsScenario::new);
