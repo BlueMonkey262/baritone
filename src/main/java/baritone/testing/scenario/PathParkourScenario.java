@@ -75,8 +75,8 @@ public final class PathParkourScenario extends TestScenario {
         return arena.stateAt(0, -1, 0).is(Blocks.STONE)
                 && arena.stateAt(GAP_X, -1, 0).isAir()
                 && arena.stateAt(GOAL_X, -1, 0).is(Blocks.STONE)
-                && arena.stateAt(0, 1, -1).is(Blocks.STONE)
-                && arena.stateAt(GOAL_X, 1, 1).is(Blocks.STONE);
+                && arena.stateAt(0, 1, -2).is(Blocks.STONE)
+                && arena.stateAt(GOAL_X, 1, 2).is(Blocks.STONE);
     }
 
     @Override

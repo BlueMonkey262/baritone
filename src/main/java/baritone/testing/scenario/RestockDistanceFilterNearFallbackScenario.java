@@ -113,16 +113,19 @@ public final class RestockDistanceFilterNearFallbackScenario extends TestScenari
         }
         int near = ScenarioInventory.countContainer(arena, NEAR_X, 0, BOX_Z, Items.WHITE_CONCRETE);
         int far = ScenarioInventory.countContainer(arena, FAR_X, 0, BOX_Z, Items.WHITE_CONCRETE);
+        int carried = ScenarioInventory.countPlayer(arena, Items.WHITE_CONCRETE);
         arena.note("distance evidence at t=%d: target=%s, near white=%d, far white=%d, crossed far=%b, player=%s",
                 elapsedTicks, arena.stateAt(BUILD_X, 1, 0).getBlock().getName().getString(),
                 near, far, this.sawFar, arena.ctx().playerFeet());
         if (this.sawFar) {
             return Verdict.fail("the player reached the stocked box outside restockMaxDistance");
         }
-        return near == SOURCE_COUNT - 1 && far == SOURCE_COUNT
-                ? Verdict.pass("the near box supplied the target while the stocked far box remained untouched")
-                : Verdict.fail("distance filtering produced near white=%d and far white=%d; expected %d and %d",
-                        near, far, SOURCE_COUNT - 1, SOURCE_COUNT);
+        arena.note("distance source/inventory delta: near %d -> %d, far %d -> %d, carried 0 -> %d",
+                SOURCE_COUNT, near, SOURCE_COUNT, far, carried);
+        return near == 0 && far == SOURCE_COUNT && carried == 1
+                ? Verdict.pass("the near box supplied the target, its transferred stack was consumed once, and the stocked far box remained untouched")
+                : Verdict.fail("distance filtering produced near white=%d, far white=%d, carried white=%d; expected near=0, far=%d, carried=1",
+                        near, far, carried, SOURCE_COUNT);
     }
 
     @Override

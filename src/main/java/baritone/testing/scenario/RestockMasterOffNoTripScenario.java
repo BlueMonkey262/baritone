@@ -36,7 +36,11 @@ public final class RestockMasterOffNoTripScenario extends TestScenario {
     private static final int BOX_X = 2;
     private static final int BOX_Z = 4;
     private static final int BUILD_X = 6;
+    /** Kept: the scenario is named no-trip, so not visiting is part of the claim. */
     private boolean sawBox;
+
+    private int startingCarriedWhite;
+    private int startingBoxWhite;
 
     @Override
     public String name() {
@@ -94,27 +98,32 @@ public final class RestockMasterOffNoTripScenario extends TestScenario {
             return;
         }
         world.getRestockBoxes().addBox(box);
+        this.startingCarriedWhite = ScenarioInventory.countPlayer(arena, Items.WHITE_CONCRETE);
+        this.startingBoxWhite = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z,
+                Items.WHITE_CONCRETE);
         BetterBlockPos target = arena.at(BUILD_X, 0, 0);
         arena.note("restockFromBoxes=false; carrying white=%d while box holds white=%d",
-                ScenarioInventory.countPlayer(arena, Items.WHITE_CONCRETE),
-                ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Items.WHITE_CONCRETE));
+                this.startingCarriedWhite, this.startingBoxWhite);
         arena.baritone().getBuilderProcess().build("harness-" + name(), schematic(),
                 new Vec3i(target.x, target.y, target.z));
     }
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        this.sawBox |= arena.ctx().playerFeet().distSqr(arena.at(BOX_X, 0, BOX_Z)) <= 9.0;
         boolean first = arena.stateAt(BUILD_X, 1, 0).is(Blocks.WHITE_CONCRETE);
         boolean second = arena.stateAt(BUILD_X, 2, 0).is(Blocks.WHITE_CONCRETE);
         boolean active = arena.baritone().getBuilderProcess().isActive();
         int boxWhite = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Items.WHITE_CONCRETE);
         int carriedWhite = ScenarioInventory.countPlayer(arena, Items.WHITE_CONCRETE);
-        arena.note("off-control evidence at t=%d: targets=%b/%b, box white=%d, carried white=%d, box visited=%b, builder active=%b",
-                elapsedTicks, first, second, boxWhite, carriedWhite, this.sawBox, active);
-        if (this.sawBox || boxWhite != 2 || carriedWhite != 0) {
-            return Verdict.fail("restock-off path visited or changed the box: visited=%b, box white=%d, carried=%d",
-                    this.sawBox, boxWhite, carriedWhite);
+        arena.note("off-control evidence at t=%d: targets=%b/%b, box white=%d (start=%d), carried white=%d (start=%d), builder active=%b",
+                elapsedTicks, first, second, boxWhite, this.startingBoxWhite, carriedWhite,
+                this.startingCarriedWhite, active);
+        this.sawBox |= arena.ctx().playerFeet().distSqr(arena.at(BOX_X, 0, BOX_Z)) <= 9.0;
+        if (this.sawBox || boxWhite != this.startingBoxWhite
+                || carriedWhite > this.startingCarriedWhite) {
+            return Verdict.fail("restock-off path visited the box or took from it: visited=%b, box white=%d (start=%d), carried=%d (start=%d)",
+                    this.sawBox, boxWhite, this.startingBoxWhite, carriedWhite,
+                    this.startingCarriedWhite);
         }
         if (first && !second && !active) {
             return Verdict.pass("the first target placed, then the ordinary material shortage stopped without a restock trip");
@@ -127,7 +136,9 @@ public final class RestockMasterOffNoTripScenario extends TestScenario {
         return "targets=" + arena.stateAt(BUILD_X, 1, 0).getBlock() + "/" + arena.stateAt(BUILD_X, 2, 0).getBlock()
                 + ", box white=" + ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Items.WHITE_CONCRETE)
                 + ", carried white=" + ScenarioInventory.countPlayer(arena, Items.WHITE_CONCRETE)
-                + ", visited=" + this.sawBox + ", active=" + arena.baritone().getBuilderProcess().isActive();
+                + ", starting box white=" + this.startingBoxWhite
+                + ", starting carried white=" + this.startingCarriedWhite
+                + ", active=" + arena.baritone().getBuilderProcess().isActive();
     }
 
     private static StaticSchematic schematic() {
