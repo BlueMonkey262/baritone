@@ -92,4 +92,12 @@ public interface IRestockBoxCollection {
      * @param missing Whether the box is believed to be gone
      */
     void setMissing(BetterBlockPos pos, boolean missing);
+
+    /**
+     * Reloads the persisted registrations for this world and dimension.
+     * <p>
+     * The live harness uses this to exercise the same round-trip as a world-data reload. Other
+     * implementations that do not persist registrations may keep their current in-memory view.
+     */
+    default void reloadFromDisk() {}
 }

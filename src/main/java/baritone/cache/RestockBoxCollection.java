@@ -87,6 +87,12 @@ public class RestockBoxCollection implements IRestockBoxCollection {
         load(backupFile());
     }
 
+    @Override
+    public synchronized void reloadFromDisk() {
+        this.boxes.clear();
+        load();
+    }
+
     private boolean load(Path fileName) {
         if (!Files.exists(fileName)) {
             return false;
