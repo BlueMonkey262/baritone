@@ -538,6 +538,24 @@ Two deliberate choices:
 - **Verdicts come from the world, not from chat.** Baritone logs `"Done building"` when it has
   nothing left it *can* do, which includes having given up — the exact state a materials bug leaves
   it in. Scenarios count placed blocks, read the inventory and check the player's position instead.
+- **A scenario must show its work.** Every scenario notes, via `arena.note`, the observation its
+  verdict rests on — not the conclusion, the measurement. "wall=15/15, sword damage=0" is evidence;
+  "the pickaxe was protected" is a restatement of the verdict.
+
+  This exists so a pass can be audited afterwards. A scenario that reports only "reached the goal in
+  251 ticks" cannot be distinguished, after the fact, from one that would have passed regardless of
+  what the bot did — and two scenarios shipped in August 2026 that did exactly that. The suite is
+  large enough now that nobody re-reads every scenario's source; the report has to carry enough for
+  someone to ask "does this evidence support this verdict?" and get an answer.
+
+  The same rule is why staging failures list the commands that were sent. A `STAGING_FAILED` used to
+  report the server's error text and nothing else, and two days of them were diagnosed by guessing
+  until the harness started saying which command it had sent.
+
+  The general form, learned three separate times in one week: **an instrument that cannot see must
+  say so, not return zero.** A container read that could not reach the block entity answered 0 rather
+  than "unknown", and that single choice produced two confident, wrong conclusions about the mod
+  destroying player items.
 
 `TestingBehavior` is a behavior, not a process, for the reason `ThreatBehavior` is one only more
 so: it supervises processes. Registering it with `ProcessScheduler` would put it in competition
