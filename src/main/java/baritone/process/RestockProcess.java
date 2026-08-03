@@ -38,6 +38,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Equipable;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -918,6 +919,12 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
                 || stack.isEmpty()
                 || !(stack.getItem() instanceof BlockItem)
                 || stack.get(DataComponents.FOOD) != null
+                // DataComponents.EQUIPPABLE does not exist on 1.21.1 -- it lands in 1.21.4. Asking
+                // whether the item's *block* is Equipable is the equivalent test: it catches a
+                // wearable block such as carved_pumpkin, which is the only thing this guard can
+                // protect, since isJunk has already required a BlockItem.
+                || (stack.getItem() instanceof BlockItem wearable
+                        && wearable.getBlock() instanceof Equipable)
                 || stack.get(DataComponents.TOOL) != null
         ) {
             return false;
