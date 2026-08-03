@@ -26,8 +26,21 @@ Three goals, in priority order. They are listed here so a change can be judged a
    `UPSTREAM_BUG_BACKLOG.md` T50 (render-distance scanner lag) and T49 (clear-area memory
    exhaustion) are the standing entries under this goal.
 
-Non-goals: combat, anything that fakes a server-side effect (see the packet rule in the repo
-conventions), and supporting more than one Minecraft version at a time.
+Non-goals: combat, and anything that fakes a server-side effect (see the packet rule in the repo
+conventions).
+
+**Supporting one Minecraft version at a time was a non-goal until 2026-08-02, and no longer is.**
+Tenor now ships against seven: 1.20.1, 1.20.4, 1.21.1, 1.21.4, 1.21.11, 26.1.2 and 26.2. The cost
+that non-goal was protecting against is real and is now paid deliberately -- every fix is several
+cherry-picks, every release is several releases, and the in-game gate multiplies by the number of
+versions. `V0.2-PLAN.md` §7 states that tax; §3 states the discipline that keeps it affordable, which
+is that one branch is canonical and fixes land there first.
+
+What made it affordable is that the fork is additive: 90 files differ from upstream, +16,138/-152,
+overwhelmingly new files, so only three collide per port. What made it *expensive* was not the mod
+at all -- it was the harness, which had two version-portability bugs (item NBT changed at 1.20.5,
+gamerules were renamed between 1.21.4 and 1.21.11) that between them accounted for every failure on
+every older version.
 
 ---
 
