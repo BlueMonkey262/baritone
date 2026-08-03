@@ -24,6 +24,7 @@ from growing without bound.
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -34,11 +35,25 @@ from pathlib import Path
 PRISM_ROOT = Path(
     "/home/eli/.var/app/org.prismlauncher.PrismLauncher/data/PrismLauncher/instances"
 )
-BASE_INSTANCE = "baritone-testing"
+DEFAULT_INSTANCE = "baritone-testing"
 FLATPAK_APP = "org.prismlauncher.PrismLauncher"
 
 # Copied from the base instance; everything else (logs, other worlds, reports) is left behind.
 SKIP_DIRS = {"logs", "crash-reports", "screenshots"}
+
+
+VERSION_SUFFIX = re.compile(r"(\d+\.\d+(?:\.\d+)*)$")
+
+
+def trailing_version(instance):
+    """The Minecraft version an instance name ends in, if any.
+
+    Instances are named `tenor-testing-<mcversion>`, so the version is recoverable without a second
+    flag. Returns None for names that do not carry one -- notably the pre-v0.2 `baritone-testing`,
+    which is how a run against an unlabelled instance still works and simply records no version.
+    """
+    match = VERSION_SUFFIX.search(instance)
+    return match.group(1) if match else None
 
 
 def instance_dir(name):
@@ -180,6 +195,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-n", "--instances", type=int, default=4)
     parser.add_argument("-w", "--world", default="testing2")
+    parser.add_argument(
+        "--instance",
+        default=DEFAULT_INSTANCE,
+        help=f"base PrismLauncher instance to clone (default: {DEFAULT_INSTANCE}). "
+             "Each supported Minecraft version needs its own, with its own world: a save written "
+             "by a later version will not open in an earlier one.",
+    )
+    parser.add_argument(
+        "--mc-version",
+        help="Minecraft version label recorded in the merged report and used to pick the "
+             "baseline file. Defaults to the trailing version in --instance, if it has one.",
+    )
     parser.add_argument("--jar", help="path to the Continuo jar (default: newest unoptimized fabric jar in dist/)")
     parser.add_argument("--timeout", type=int, default=3600, help="seconds to wait for a report")
     parser.add_argument("--scenarios", help="file with one scenario name per line")
@@ -188,8 +215,13 @@ def main():
     parser.add_argument("--keep", action="store_true", help="do not delete clones afterwards")
     args = parser.parse_args()
 
-    if running_pids(BASE_INSTANCE):
-        sys.exit(f"{BASE_INSTANCE} is running; close it first")
+    base = args.instance
+    if not instance_dir(base).exists():
+        sys.exit(f"no such instance: {instance_dir(base)}")
+    mc_version = args.mc_version or trailing_version(base)
+
+    if running_pids(base):
+        sys.exit(f"{base} is running; close it first")
 
     jar = args.jar
     if not jar:
@@ -215,8 +247,9 @@ def main():
         sys.exit("pass one of --scenarios, --fuzz or --curated")
 
     shards = shard(scenarios, args.instances) if scenarios else [[]] * args.instances
-    names = [f"{BASE_INSTANCE}-{i + 1}" for i in range(len(shards))]
+    names = [f"{base}-{i + 1}" for i in range(len(shards))]
 
+    print(f"base instance: {base}" + (f" (Minecraft {mc_version})" if mc_version else ""))
     print(f"jar: {jar}")
     print(f"world: {args.world}")
     for name, names_in_shard in zip(names, shards):
@@ -225,7 +258,7 @@ def main():
     started = time.time()
     for name, names_in_shard in zip(names, shards):
         print(f"cloning {name} ...", flush=True)
-        clone(BASE_INSTANCE, name, args.world, jar)
+        clone(base, name, args.world, jar)
         write_shard(name, names_in_shard)
 
     procs = {}
@@ -266,14 +299,14 @@ def main():
             results[name] = partial
         reap(name)
 
-    summarise(results, pending, names, started)
+    summarise(results, pending, names, started, mc_version)
 
     if not args.keep:
         for name in names:
             shutil.rmtree(instance_dir(name), ignore_errors=True)
 
 
-def summarise(results, pending, names, started):
+def summarise(results, pending, names, started, mc_version=None):
     scenarios = []
     for name in names:
         report = results.get(name)
@@ -291,6 +324,7 @@ def summarise(results, pending, names, started):
     merged = out / "parallel-latest.json"
     merged.write_text(json.dumps(
         {
+            "mcVersion": mc_version,
             "wallClockSeconds": int(time.time() - started),
             "instances": names,
             "timedOut": sorted(pending),

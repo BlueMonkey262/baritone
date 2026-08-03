@@ -1,0 +1,116 @@
+{
+  "instances": 3,
+  "scenarios": {
+    "build-directional": {
+      "maxTicks": 80,
+      "medianTicks": 80,
+      "minTicks": 80,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "build-observers": {
+      "maxTicks": 102,
+      "medianTicks": 102,
+      "minTicks": 102,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "build-schematic": {
+      "maxTicks": 387,
+      "medianTicks": 362,
+      "minTicks": 355,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "hoppers-facing": {
+      "maxTicks": 95,
+      "medianTicks": 95,
+      "minTicks": 93,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "logs-axes": {
+      "maxTicks": 55,
+      "medianTicks": 53,
+      "minTicks": 53,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "pathing-course": {
+      "maxTicks": 259,
+      "medianTicks": 256,
+      "minTicks": 249,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "restock-from-box": {
+      "maxTicks": 454,
+      "medianTicks": 440,
+      "minTicks": 434,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "stairs-halves": {
+      "maxTicks": 452,
+      "medianTicks": 452,
+      "minTicks": 451,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "water-detour": {
+      "maxTicks": 130,
+      "medianTicks": 129,
+      "minTicks": 129,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "water-detour-x30": {
+      "maxTicks": 129,
+      "medianTicks": 129,
+      "minTicks": 129,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    },
+    "water-detour-x8": {
+      "maxTicks": 130,
+      "medianTicks": 129,
+      "minTicks": 129,
+      "runs": 3,
+      "status": "PASS",
+      "statuses": [
+        "PASS"
+      ]
+    }
+  },
+  "wallClockSeconds": 210
+}
