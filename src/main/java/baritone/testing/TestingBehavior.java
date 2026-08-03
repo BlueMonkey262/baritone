@@ -208,6 +208,9 @@ public final class TestingBehavior extends Behavior implements Helper {
 
     private State state = State.IDLE;
     private final List<String> rejectedCommands = new ArrayList<>();
+
+    /** Staging commands sent for the current scenario, so a rejection can be attributed. */
+    private final List<String> sentCommands = new ArrayList<>();
     private final List<String> queue = new ArrayList<>();
     private final List<ScenarioResult> results = new ArrayList<>();
     private final Map<String, Object> savedSettings = new HashMap<>();
@@ -451,15 +454,21 @@ public final class TestingBehavior extends Behavior implements Helper {
         // change what Baritone does, and none of them are what these scenarios are measuring.
         //
         // These ids are 26.1.2's, and they are not the ones anyone has memorised: the rules were
+        // NOTE FOR THIS BRANCH: 1.20.1 predates Minecraft's snake_case gamerule rename, which
+        // landed between 1.21.4 and 1.21.11. The canonical branch uses the new names; here they are
+        // rejected as "Incorrect argument for command", and because these are sent before the first
+        // scenario the six rejections were attributed to whichever scenario ran first --
+        // pathing-course -- which is why it failed intermittently on every pre-rename version while
+        // passing when run alone.
         // renamed and moved to net.minecraft.world.level.gamerules, and doDaylightCycle became
         // advance_time rather than merely changing case. The first two suite runs sent the old
         // camelCase names, every one was rejected, and nothing noticed -- see checkForCommandError.
-        sendNow("gamerule advance_time false");
-        sendNow("gamerule advance_weather false");
-        sendNow("gamerule spawn_mobs false");
-        sendNow("gamerule random_tick_speed 0");
-        sendNow("gamerule keep_inventory true");
-        sendNow("gamerule send_command_feedback false");
+        sendNow("gamerule doDaylightCycle false");
+        sendNow("gamerule doWeatherCycle false");
+        sendNow("gamerule doMobSpawning false");
+        sendNow("gamerule randomTickSpeed 0");
+        sendNow("gamerule keepInventory true");
+        sendNow("gamerule sendCommandFeedback false");
         sendNow("time set noon");
         sendNow("weather clear");
         sendNow("difficulty peaceful");
@@ -484,6 +493,7 @@ public final class TestingBehavior extends Behavior implements Helper {
         this.lastProgressMarker = null;
         this.progressMarkerSince = 0;
         this.rejectionMark = this.rejectedCommands.size();
+        this.sentCommands.clear();
         this.state = State.STAGING;
 
         clearRestockBoxRegistrations();
@@ -519,7 +529,13 @@ public final class TestingBehavior extends Behavior implements Helper {
             return;
         }
         for (int i = 0; i < COMMANDS_PER_TICK && this.arena.hasPendingCommands(); i++) {
-            sendNow(this.arena.nextCommand());
+            String command = this.arena.nextCommand();
+            // Kept so a rejection can name the command that caused it. Without this the report says
+            // only "Incorrect argument for command", which is not enough to fix anything -- the
+            // whole point of staging through real commands is lost if we cannot see which one the
+            // server refused.
+            this.sentCommands.add(command);
+            sendNow(command);
         }
         if (!this.arena.hasPendingCommands()) {
             this.state = State.AWAIT_STAGING;
@@ -534,6 +550,14 @@ public final class TestingBehavior extends Behavior implements Helper {
         List<String> rejections = rejectionsThisScenario();
         if (!rejections.isEmpty()) {
             rejections.forEach(rejection -> this.arena.note("rejected: %s", rejection));
+            // The rejection text alone does not identify the offending command, so list what was
+            // sent. Bounded, because a big arena sends hundreds and the report has to stay readable.
+            int shown = Math.min(this.sentCommands.size(), MAX_RECORDED_REJECTIONS * 4);
+            this.arena.note("sent %d staging command(s); first %d follow",
+                    this.sentCommands.size(), shown);
+            for (int i = 0; i < shown; i++) {
+                this.arena.note("  sent[%d]: %s", i, this.sentCommands.get(i));
+            }
             finishScenario(ScenarioResult.Status.STAGING_FAILED, String.format(
                     "the server rejected %d staging command(s), so the arena is not what the "
                             + "scenario asked for; first was: %s",
