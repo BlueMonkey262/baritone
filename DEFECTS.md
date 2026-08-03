@@ -480,10 +480,26 @@ isolated it, and the scenario runs with `restockFromBoxes=false` so `RestockProc
 
 ## T-03 — Pre-component ports lose the wearable-block deposit guard
 
-On the canonical branch `isJunk` refuses any stack carrying `EQUIPPABLE`. The 1.21.1 port dropped the
-check outright; the 1.20.1 port translated it to `item instanceof Equipable`, which a 1.20.1
-`BlockItem` is not. Either way **`minecraft:carved_pumpkin` can be deposited** on those versions and
-cannot on 26.1.x.
+On the canonical branch `isJunk` refuses any stack carrying `EQUIPPABLE`, and
+**`minecraft:carved_pumpkin` can be deposited** on the older versions where that guard is absent.
+
+**Corrected 2026-08-03.** This entry first said the 1.21.1 port "dropped a guard the version
+supports". It does not: `DataComponents.EQUIPPABLE` does not exist on 1.21.1 -- verified by trying to
+compile it, which failed with `cannot find symbol`. The component landed between 1.21.1 and 1.21.4,
+so 1.21.4 keeps the guard and 1.21.1 cannot. The port was right to omit it; the ledger was wrong to
+call that a mistake.
+
+The real shape is a version boundary, not a porting error:
+
+| version | `EQUIPPABLE` | wearable block protected? |
+|---|---|---|
+| 26.1.2, 26.2, 1.21.11 | yes | yes |
+| 1.21.4 | yes | yes |
+| 1.21.1 | **no** | **no** |
+| 1.20.4, 1.20.1 | **no** (pre-components entirely) | **no**, and `item instanceof Equipable` does not catch a `BlockItem` |
+
+So three versions need a pre-component equivalent that actually catches a wearable block, not a
+restored component check.
 
 Narrower than it first looks: `isJunk` tests `instanceof BlockItem` first, so armour and swords were
 never reachable by these checks. The audit also found the `FOOD`, `TOOL` and `WEAPON` checks are
