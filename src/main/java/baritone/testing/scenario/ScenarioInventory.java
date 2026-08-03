@@ -10,6 +10,7 @@
 package baritone.testing.scenario;
 
 import baritone.api.utils.BetterBlockPos;
+import net.minecraft.core.BlockPos;
 import baritone.testing.TestArena;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceKey;
@@ -69,8 +70,18 @@ final class ScenarioInventory {
                 // after it was staged can mint an empty shulker box and permanently shadow the real
                 // one. That is why this reader spent an evening reporting an empty box while the bot
                 // pulled 63 concrete out of it.
+                // Look up with a PLAIN BlockPos, never the BetterBlockPos.
+                //
+                // This is the whole of T-01. BetterBlockPos overrides hashCode with its own
+                // algorithm -- deliberately, because Vec3i's collides badly -- while the chunk's
+                // block-entity map is a Map<BlockPos, BlockEntity> keyed by plain BlockPos. Equal
+                // coordinates therefore hash to different buckets, so the lookup misses even though
+                // equals() would match, and the reader reported an empty box for one the bot was
+                // actively emptying. With IMMEDIATE it silently minted a fresh empty block entity
+                // instead, which is why the box looked real but held nothing.
+                BlockPos key = new BlockPos(pos.getX(), pos.getY(), pos.getZ());
                 Object be = level == null ? null
-                        : level.getChunkAt(pos).getBlockEntity(pos, LevelChunk.EntityCreationType.CHECK);
+                        : level.getChunkAt(key).getBlockEntity(key, LevelChunk.EntityCreationType.CHECK);
                 if (!(be instanceof Container container)) {
                     return -1;
                 }
