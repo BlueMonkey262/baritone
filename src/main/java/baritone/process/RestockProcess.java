@@ -33,6 +33,7 @@ import baritone.api.utils.input.Input;
 import baritone.behavior.ContainerInteractionBehavior;
 import baritone.pathing.movement.MovementHelper;
 import baritone.utils.BaritoneProcessHelper;
+import baritone.utils.ToolSet;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -214,6 +215,17 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
     private int transferSlot;
     private int depositSlot = -1;
     private int deposited;
+    /** Spent tools put back during a swap-back, counted separately so the report stays honest. */
+    private int toolsSwappedBack;
+    /**
+     * On a tool fetch, the worn-out tool this trip is replacing.
+     * <p>
+     * Set by {@link #requestTool} and used to put the old one back while the box is still open. It
+     * is deliberately not handled by {@link #isJunk}, which refuses tools outright so that an
+     * ordinary unload trip can never file away the player's gear — the exemption here is narrow:
+     * this specific item type, only while spent, only on the trip that fetched its replacement.
+     */
+    private Item swapBackTool;
     /**
      * Whether the first transfer attempt found the wanted stack but had no room to receive it.
      * The open box stays current while we make room, then the same transfer is tried again.
@@ -519,6 +531,11 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.wantedItem = tool;
         this.wantedCount = 1;
         this.worthKeeping = worthKeeping;
+        // Put the worn one back while we're stood at the open box. Without this the spent tool rides
+        // along forever: isJunk refuses tools, so an unload trip will not shed it either, and a long
+        // mine accumulates one dead pickaxe per replacement until the inventory is full of cargo it
+        // structurally cannot drop.
+        this.swapBackTool = tool;
         // Tools stack to one, so restockExtraStacks reads as "spares", which is what we want here --
         // walking back to the box for every single pickaxe is the thing this feature exists to avoid.
         this.fetchTarget = fetchTarget(
@@ -850,13 +867,45 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.ticksInState = 0;
         this.depositSlot = -1;
         this.deposited = 0;
+        this.toolsSwappedBack = 0;
         this.keptThrowaway.clear();
         this.freeSlotsAtBox = freeSlots();
         // a deposit trip has no other reason to be here, so it never skips the dump
         this.state = this.retryTransferAfterDeposit || this.depositOnly || shouldDumpJunk()
+                || hasSpentToolToSwapBack()
                 ? State.DEPOSITING
                 : State.CLOSING;
         return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+    }
+
+    /**
+     * Whether we are carrying a worn-out tool that belongs in the box we just took its replacement
+     * from.
+     * <p>
+     * Only true once a replacement has actually arrived: putting the old tool away before the new
+     * one is in hand would leave us with neither if the take then failed.
+     */
+    private boolean hasSpentToolToSwapBack() {
+        if (this.swapBackTool == null || !this.tookAnything || ctx.player() == null) {
+            return false;
+        }
+        for (ItemStack stack : ctx.player().getInventory().getNonEquipmentItems()) {
+            if (isSpentSwapBack(stack)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether this stack is the worn-out tool being replaced, as opposed to the fresh one just
+     * taken. {@link ToolSet#isSpent} is what separates them: same item, different damage.
+     */
+    private boolean isSpentSwapBack(ItemStack stack) {
+        return this.swapBackTool != null
+                && !stack.isEmpty()
+                && stack.getItem() == this.swapBackTool
+                && ToolSet.isSpent(stack);
     }
 
     /**
@@ -916,15 +965,21 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
                                   boolean depositOnly, Map<Item, Integer> keptThrowaway) {
         if (worthKeeping == null
                 || stack.isEmpty()
-                || !(stack.getItem() instanceof BlockItem)
                 || stack.get(DataComponents.FOOD) != null
                 || stack.get(DataComponents.EQUIPPABLE) != null
                 || stack.get(DataComponents.TOOL) != null
                 || stack.get(DataComponents.WEAPON) != null) {
             return false;
         }
-        Block block = ((BlockItem) stack.getItem()).getBlock();
-        if (block instanceof CakeBlock || block instanceof ShulkerBoxBlock) {
+        if (stack.getItem() instanceof BlockItem blockItem) {
+            Block block = blockItem.getBlock();
+            if (block instanceof CakeBlock || block instanceof ShulkerBoxBlock) {
+                return false;
+            }
+        } else if (!Baritone.settings().depositableBulkItems.value.contains(stack.getItem())) {
+            // Not placeable and not named as bulk. This is the branch that keeps diamonds, totems,
+            // pearls and enchanted books out of the box, and it is why the fix for depositing raw
+            // ore is an allowlist rather than dropping the BlockItem test outright.
             return false;
         }
         if (Baritone.settings().acceptableThrowawayItems.value.contains(stack.getItem())) {
@@ -987,14 +1042,19 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         while (this.depositSlot < menu.slots.size()) {
             int slot = this.depositSlot++;
             ItemStack stack = menu.slots.get(slot).getItem();
-            if (isJunk(stack)) {
+            boolean swapBack = isSpentSwapBack(stack);
+            if (isJunk(stack) || swapBack) {
                 int countBefore = stack.getCount();
                 behavior.quickMove(menu, slot);
                 // The click is applied to the local menu synchronously, so the source slot itself
                 // says whether the stack went anywhere. Shift-clicking into a full box is accepted
                 // and moves nothing, which is exactly the case this has to distinguish.
                 if (menu.slots.get(slot).getItem().getCount() < countBefore) {
-                    this.deposited++;
+                    if (swapBack) {
+                        this.toolsSwappedBack++;
+                    } else {
+                        this.deposited++;
+                    }
                 }
                 this.ticksInState = 0;
                 return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
@@ -1009,8 +1069,14 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         // Clicks are not proof: shift-clicking into a full box succeeds locally and moves nothing.
         // What actually happened is the change in free slots.
         int freed = freeSlots() - this.freeSlotsAtBox;
+        if (this.toolsSwappedBack > 0) {
+            logDirect(String.format("Put %d worn %s back into %s",
+                    this.toolsSwappedBack, itemName(this.swapBackTool), this.targetBox));
+        }
         if (this.deposited > 0) {
             logDirect(String.format("Put %d stack(s) of unwanted blocks into %s", this.deposited, this.targetBox));
+        }
+        if (this.deposited > 0 || this.toolsSwappedBack > 0) {
             IRestockBoxCollection collection = boxes();
             if (collection != null && behavior.isContainerReadable()) {
                 // what we just added changes the box's contents, so re-record them
@@ -1220,6 +1286,8 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
         this.wantedState = null;
         this.wantedCount = 0;
         this.fetchTarget = 0;
+        this.swapBackTool = null;
+        this.toolsSwappedBack = 0;
         this.worthKeeping = null;
         this.targetBox = null;
         this.candidates = new ArrayList<>();
