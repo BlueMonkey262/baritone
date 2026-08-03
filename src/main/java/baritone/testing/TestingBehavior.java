@@ -49,6 +49,8 @@ import baritone.testing.scenario.ItemSaverNoBoxStopsScenario;
 import baritone.testing.scenario.ItemSaverReplacementBoxScenario;
 import baritone.testing.scenario.ItemSaverSwordSubstituteScenario;
 import baritone.testing.scenario.ItemSaverToolIntactScenario;
+import baritone.testing.scenario.ItemSaverToolSwapBackNoReplacementScenario;
+import baritone.testing.scenario.ItemSaverToolSwapBackScenario;
 import baritone.testing.scenario.LogsAxesScenario;
 import baritone.testing.scenario.LargeBuildPerformanceScenario;
 import baritone.testing.scenario.MineDelayedDropScenario;
@@ -175,6 +177,8 @@ public final class TestingBehavior extends Behavior implements Helper {
         registerUncurated(ItemSaverSwordSubstituteScenario::new);
         registerUncurated(ItemSaverBareHandsScenario::new);
         registerUncurated(ItemSaverDisabledControlScenario::new);
+        registerUncurated(ItemSaverToolSwapBackScenario::new);
+        registerUncurated(ItemSaverToolSwapBackNoReplacementScenario::new);
         registerUncurated(DepositBulkItemsScenario::new);
         registerUncurated(RestockMultipleBoxesScenario::new);
         registerUncurated(RestockEmptyIndexedBoxScenario::new);

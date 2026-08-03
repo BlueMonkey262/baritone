@@ -12,13 +12,19 @@ package baritone.testing.scenario;
 import baritone.api.utils.BetterBlockPos;
 import baritone.testing.TestArena;
 import net.minecraft.client.Minecraft;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 
 /** Small world/inventory readers shared by container scenarios; none inspect chat or logs. */
 final class ScenarioInventory {
@@ -26,39 +32,55 @@ final class ScenarioInventory {
     private ScenarioInventory() {}
 
     /**
-     * The authoritative contents of a container, read from the integrated server.
+     * Counts something in a container, evaluated <b>on the server thread</b>.
      * <p>
-     * <b>Not the client copy, and this is the whole point.</b> Minecraft does not send container
-     * contents to clients -- that is what stops a client seeing inside a chest it has not opened --
-     * so the client-side block entity is permanently empty and
-     * {@code ctx().world().getBlockEntity(...)} reports zero of everything no matter what is really
-     * in the box.
+     * Two separate problems make this the only way to read a container honestly, and both of them
+     * silently returned zero rather than failing.
      * <p>
-     * That silently broke every container assertion in the suite. Scenarios asserting a box
-     * <i>gained</i> items failed against a bot that had done the job correctly; worse,
-     * {@code restock-two-materials} asserts a box holds <i>fewer</i> items than staged, so a constant
-     * zero made it pass without testing anything. Reading real deposits requires the server's copy.
+     * First, the client copy is always empty. Minecraft never sends container contents to clients --
+     * that is what stops a client seeing inside a chest it has not opened -- so
+     * {@code ctx().world().getBlockEntity(...)} reports zero of everything no matter what is in the
+     * box.
      * <p>
-     * Reading server state from the client thread is a deliberate exception to the rule that the
-     * harness acts only through real packets. That rule exists so arenas and actions stay on paths a
-     * player could take; it governs what the harness <i>does</i>, not what it is allowed to
-     * <i>observe</i> when deciding a verdict. An assertion has to be able to see the truth.
+     * Second, reaching for the server's copy from the client thread does not work either.
+     * {@code ServerLevel#getBlockEntity} resolves through the server's chunk source, which is
+     * confined to the server thread; called from the client it returns null even when the block is
+     * demonstrably there. That was measured, not assumed: with a shulker box present in both worlds,
+     * {@code serverBlock=shulker_box clientBlock=shulker_box be=null}.
+     * <p>
+     * So the whole read is submitted to the server thread and waited on. The wait is bounded, and a
+     * timeout answers -1 rather than hanging a scenario.
      *
-     * @return the container, or null if there is no integrated server or no container there
+     * @return the count, or -1 if there is no integrated server, no container, or the read timed out
      */
-    private static Container container(TestArena arena, int x, int y, int z) {
+    private static int countOnServer(TestArena arena, int x, int y, int z, ToIntFunction<Container> count) {
         BetterBlockPos pos = arena.at(x, y, z);
         MinecraftServer server = Minecraft.getInstance().getSingleplayerServer();
-        if (server != null && arena.ctx().world() != null) {
-            ServerLevel level = server.getLevel(arena.ctx().world().dimension());
-            if (level != null && level.getBlockEntity(pos) instanceof Container container) {
-                return container;
-            }
+        if (server == null || arena.ctx().world() == null) {
+            return -1;
         }
-        // No integrated server means this is not a singleplayer harness run, which every scenario
-        // already refuses to start in. Falling back keeps the readers total rather than throwing.
-        return arena.ctx().world().getBlockEntity(pos) instanceof Container container ? container : null;
+        ResourceKey<Level> dimension = arena.ctx().world().dimension();
+        try {
+            return server.submit(() -> {
+                ServerLevel level = server.getLevel(dimension);
+                if (level == null || !(level.getBlockEntity(pos) instanceof Container container)) {
+                    return -1;
+                }
+                return count.applyAsInt(container);
+            }).get(SERVER_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return -1;
+        } catch (ExecutionException | TimeoutException e) {
+            return -1;
+        }
     }
+
+    /**
+     * How long to wait for the server thread to answer a container read. It answers within a tick in
+     * practice; this only exists so a wedged server fails the scenario instead of hanging the client.
+     */
+    private static final long SERVER_READ_TIMEOUT_MS = 2000;
 
     static int countPlayer(TestArena arena, Item item) {
         return arena.ctx().player().getInventory().getNonEquipmentItems().stream()
@@ -94,33 +116,29 @@ final class ScenarioInventory {
     }
 
     static int countContainer(TestArena arena, int x, int y, int z, Item item) {
-        Container container = container(arena, x, y, z);
-        if (container == null) {
-            return -1;
-        }
-        int count = 0;
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
-            ItemStack stack = container.getItem(slot);
-            if (stack.is(item)) {
-                count += stack.getCount();
+        return countOnServer(arena, x, y, z, container -> {
+            int count = 0;
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                ItemStack stack = container.getItem(slot);
+                if (stack.is(item)) {
+                    count += stack.getCount();
+                }
             }
-        }
-        return count;
+            return count;
+        });
     }
 
     static int countContainerMatching(TestArena arena, int x, int y, int z, Item item,
                                       Predicate<ItemStack> predicate) {
-        Container container = container(arena, x, y, z);
-        if (container == null) {
-            return -1;
-        }
-        int count = 0;
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
-            ItemStack stack = container.getItem(slot);
-            if (stack.is(item) && predicate.test(stack)) {
-                count += stack.getCount();
+        return countOnServer(arena, x, y, z, container -> {
+            int count = 0;
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                ItemStack stack = container.getItem(slot);
+                if (stack.is(item) && predicate.test(stack)) {
+                    count += stack.getCount();
+                }
             }
-        }
-        return count;
+            return count;
+        });
     }
 }
