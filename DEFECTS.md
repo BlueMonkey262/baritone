@@ -24,7 +24,7 @@ are intentionally not triaged here.
 | H7 | sol-high-review.md | Right-click is one-shot | high | FORK | FIXED | None |
 | H8 | sol-high-review.md | Transfers settle before success is assumed | high | FORK | PARTIAL | restock-from-box (normal path) |
 | T-01 | 2026-08-02 session | Harness cannot read container contents | high | FORK | OPEN | none possible until fixed |
-| T-02 | 2026-08-02 session | Observer facing wrong, and never corrected | high | FORK | OPEN | build-observers (intermittent) |
+| T-02 | 2026-08-02 session | Down-facing observer can remain unplaced | high | FORK | OPEN | build-observers (intermittent) |
 | T-03 | 2026-08-02 session | 1.20.1/1.21.1 shims drop wearable-block guard | medium | FORK | OPEN | none |
 | H9 | sol-high-review.md | Capacity failure retries after dumping | high | FORK | FIXED | None for full-inventory case |
 | H10 | sol-high-review.md | All configured substitutes count as wanted | high | FORK | FIXED | None |
@@ -465,18 +465,60 @@ showed 27 stacks leaving the inventory with free slots going 1 → 28, all corre
 throughout (`carriedServer=7`, `whiteServer=63`). Any scenario that can assert on the player rather
 than the box should, until this is fixed.
 
-## T-02 — An observer is placed 90 degrees wrong and the builder never recovers
+## T-02 — A down-facing observer can remain unplaced
 
-`build-observers` fails intermittently — roughly one client in nine — with `wanted
-observer[facing=south], got observer[facing=east]`, then stalls three seconds in and abandons the
-three remaining targets despite `allowBreak=true`.
+The later reports correct the original description. In the failing 1.21.4 run, the tally went from
+`2 correct, 3 missing, 1 misoriented` at 30 seconds to `4 correct, 2 missing, 0 misoriented` at
+60 seconds and `5 correct, 1 missing, 0 misoriented` at 90 seconds. The only final detail was
+`BetterBlockPos{x=16,y=-56,z=-10}: wanted observer[facing=down], found Air`. The builder did recover
+from the wrong-facing placement; it did not place the final DOWN target. The two 26.2 runs passed,
+and two of the three 1.21.4 runs passed, so this is intermittent rather than a statically impossible
+state.
 
-Two distinct problems: the facing is chosen wrongly, and a wrongly-placed block wedges the build
-rather than being broken and replaced. The second is arguably the worse one.
+**Best hypothesis (not yet proven).** The fixture's supposed DOWN "ledge" is a stone block at
+`target + (0, 1, 0)`, directly above the target, plus a floor/support at `target + (0, 0, -1)` and
+`target + (0, -1, 0)`. It gives the pathfinder a possible feet position at `targetY + 2`, but it is
+not a lateral ledge. `placementGoal` only checks that some normal cube can be placed against and
+then returns `GoalPlaceOriented`; it does not establish that the eventual placement ray can see a
+usable support. `searchForPlacables` subsequently calls `possibleToPlace`, which does require a
+real ray hit. From the top of the same-column ledge, the ledge can occlude the lower/side support
+faces. The falsifiable prediction is that the DOWN goal can be selected and reached, while
+`possibleToPlace` returns empty for the target from the reached feet position; a slightly different
+sub-block position or visible support face may explain the passing runs.
 
-This lands on **H3** and **U-local-02**, both recorded FIXED with `build-observers` as their test,
-so those entries are optimistic. Not caused by any pending branch: six runs across four builds
-isolated it, and the scenario runs with `restockFromBoxes=false` so `RestockProcess` cannot reach it.
+**Geometry confirmed against the source.** `ObserverBuildScenario` stages
+`setBlock(downX, DOWN_TARGET_Y + 1, 0)` — the same column as the target, directly above it — and
+`setBlock(downX, DOWN_TARGET_Y, SUPPORT_Z)` beside it. The scenario's own javadoc calls the first an
+"adjacent ledge", which it is not. So the fixture is a first-class suspect alongside the builder: the
+block placed to make the target reachable from above sits exactly where it can occlude the ray to a
+support. That distinction matters for the fix — a fixture whose geometry contradicts its own comment
+is cheaper to repair than a placement-planner defect, and it should be ruled out first.
+
+The scan-window theory is not supported by the source. `GoalPlaceOriented.DOWN` accepts feet at
+`targetY + 2`, and `searchForPlacables` scans the target at `dy = -2`; the same window also contains
+the fixed UP case at `dy = +2`. The staged y+1 block makes the DOWN feet position potentially
+reachable by the movement model. This is evidence against blaming the old U-local-02 off-by-one
+window, not evidence that the ray hypothesis is confirmed.
+
+The two signatures should not be collapsed into the old two-problem claim. The wrong-facing count
+decreases to zero in the report, and the current code rechecks the live rotation/state before
+clicking and leaves a wrong block incorrect so it can be broken. That signature is therefore a
+transient orientation/execution race (or a pre-existing version-specific variant) unless a new run
+shows otherwise. The final missing DOWN block follows the separate candidate-ray/vertical-stand
+path. Whether the old 26.1.2 early stall was the same transient race cannot be established from its
+summary alone.
+
+**One-run discriminator.** Add a once-per-target diagnostic in `BuilderProcess` at the
+`searchForPlacables`/`possibleToPlace` boundary for the desired `observer[facing=down]`. Log the
+target, `ctx.playerFeet()`, the scan delta, every non-empty support candidate, and the first block
+hit returned by each candidate ray; also log when the DOWN `GoalPlaceOriented` path destination is
+reached. The decisive observation is either (a) feet at `targetY + 2` with an empty
+`possibleToPlace` result and the ray hitting/being blocked by the y+1 ledge, which confirms this
+hypothesis, or (b) no reached DOWN goal/destination, which shifts the defect to path reachability.
+
+This does not presently implicate H3 or U-local-02: H3 concerns timeout handling, while U-local-02
+was the fixed UP scan/goal mismatch. Keep T-02 OPEN and rewrite it again only after the discriminator
+run; do not record a source fix based on the current hypothesis.
 
 ## T-03 — Pre-component ports lose the wearable-block deposit guard
 
