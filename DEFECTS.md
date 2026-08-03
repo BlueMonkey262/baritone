@@ -23,6 +23,9 @@ are intentionally not triaged here.
 | H6 | sol-high-review.md | Container session ownership is unproven | high | FORK | PARTIAL | None |
 | H7 | sol-high-review.md | Right-click is one-shot | high | FORK | FIXED | None |
 | H8 | sol-high-review.md | Transfers settle before success is assumed | high | FORK | PARTIAL | restock-from-box (normal path) |
+| T-01 | 2026-08-02 session | Harness cannot read container contents | high | FORK | OPEN | none possible until fixed |
+| T-02 | 2026-08-02 session | Observer facing wrong, and never corrected | high | FORK | OPEN | build-observers (intermittent) |
+| T-03 | 2026-08-02 session | 1.20.1/1.21.1 shims drop wearable-block guard | medium | FORK | OPEN | none |
 | H9 | sol-high-review.md | Capacity failure retries after dumping | high | FORK | FIXED | None for full-inventory case |
 | H10 | sol-high-review.md | All configured substitutes count as wanted | high | FORK | FIXED | None |
 | M1 | sol-high-review.md | Re-indexing clears stale give-ups | medium | FORK | FIXED | None |
@@ -431,3 +434,63 @@ build-scaling regression.** The suite proves correctness on small builds and say
 cost on large ones. A scenario that builds something big enough for the quadratic terms to matter --
 and asserts on tick count, which the harness already records -- is the missing instrument. Until it
 exists, "measure before and after" can only catch regressions that happen to slow down small builds.
+
+
+## T-01 — The harness cannot read container contents, and answers zero instead
+
+`ScenarioInventory.countContainer` is the oracle behind every container assertion in the suite. It
+has never worked, and it fails by returning **zero** rather than erroring, which is why nothing
+noticed.
+
+Three distinct causes were found and two were fixed on 2026-08-02:
+
+1. It read `ctx().world()`, the **client** level. Minecraft never sends container contents to
+   clients, so the client block entity is permanently empty.
+2. Reading the server's copy from the client thread also fails: `ServerLevel#getBlockEntity`
+   resolves through the server chunk source and returns null off-thread. Measured, with a shulker
+   box present in both worlds: `serverBlock=shulker_box clientBlock=shulker_box be=null`.
+3. **Still open.** Submitting the read to the server thread finds the right block entity — correct
+   position, `size=27`, and a ±2 scan confirms it is the only container nearby — but it reports
+   `n=0` for a box that provably holds 64 white concrete, because the bot then fetches 63 of them
+   out of it. Most likely `getBlockEntity` creates and caches an empty block entity while the
+   arena's chunk is still settling, permanently shadowing the real one.
+
+**What it cost.** Scenarios asserting a box *gained* items failed against a bot doing the job
+correctly, and `restock-two-materials` — which asserts a box holds *fewer* items than staged — has
+been passing unconditionally without testing anything. Following the zeros produced a confident and
+wrong conclusion that the deposit path was destroying player items; it is not. Instrumentation
+showed 27 stacks leaving the inventory with free slots going 1 → 28, all correct.
+
+**Player-side reads are reliable.** Both client and server player inventories were read correctly
+throughout (`carriedServer=7`, `whiteServer=63`). Any scenario that can assert on the player rather
+than the box should, until this is fixed.
+
+## T-02 — An observer is placed 90 degrees wrong and the builder never recovers
+
+`build-observers` fails intermittently — roughly one client in nine — with `wanted
+observer[facing=south], got observer[facing=east]`, then stalls three seconds in and abandons the
+three remaining targets despite `allowBreak=true`.
+
+Two distinct problems: the facing is chosen wrongly, and a wrongly-placed block wedges the build
+rather than being broken and replaced. The second is arguably the worse one.
+
+This lands on **H3** and **U-local-02**, both recorded FIXED with `build-observers` as their test,
+so those entries are optimistic. Not caused by any pending branch: six runs across four builds
+isolated it, and the scenario runs with `restockFromBoxes=false` so `RestockProcess` cannot reach it.
+
+## T-03 — Pre-component ports lose the wearable-block deposit guard
+
+On the canonical branch `isJunk` refuses any stack carrying `EQUIPPABLE`. The 1.21.1 port dropped the
+check outright; the 1.20.1 port translated it to `item instanceof Equipable`, which a 1.20.1
+`BlockItem` is not. Either way **`minecraft:carved_pumpkin` can be deposited** on those versions and
+cannot on 26.1.x.
+
+Narrower than it first looks: `isJunk` tests `instanceof BlockItem` first, so armour and swords were
+never reachable by these checks. The audit also found the `FOOD`, `TOOL` and `WEAPON` checks are
+structurally dead behind that same gate on every branch — they only bite for modded block items
+carrying components. `EQUIPPABLE` is the one that was doing real work.
+
+Two further divergences found in the same audit, recorded here so they are not lost: a bare firework
+rocket gets no boost on 1.20.1 (the port reads a legacy `Fireworks` compound that a default rocket
+does not have), and tool searches are narrowed to `PickaxeItem`/`DiggerItem`, dropping axes, shovels,
+hoes and shears.
