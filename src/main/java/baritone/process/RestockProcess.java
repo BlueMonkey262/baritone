@@ -949,7 +949,7 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
      */
     private static boolean isPlayerValuable(Item item) {
         return item.isEdible()
-                || item instanceof Equipable
+                || (item instanceof BlockItem && ((BlockItem) item).getBlock() instanceof Equipable)
                 || item instanceof DiggerItem
                 || item instanceof SwordItem
                 || item instanceof TridentItem
