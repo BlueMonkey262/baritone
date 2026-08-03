@@ -19,6 +19,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -63,7 +64,14 @@ final class ScenarioInventory {
         try {
             return server.submit(() -> {
                 ServerLevel level = server.getLevel(dimension);
-                if (level == null || !(level.getBlockEntity(pos) instanceof Container container)) {
+                // CHECK, not the default IMMEDIATE. IMMEDIATE *creates* a block entity when the
+                // chunk does not yet have one -- and then caches it -- so reading an arena the tick
+                // after it was staged can mint an empty shulker box and permanently shadow the real
+                // one. That is why this reader spent an evening reporting an empty box while the bot
+                // pulled 63 concrete out of it.
+                Object be = level == null ? null
+                        : level.getChunkAt(pos).getBlockEntity(pos, LevelChunk.EntityCreationType.CHECK);
+                if (!(be instanceof Container container)) {
                     return -1;
                 }
                 return count.applyAsInt(container);
@@ -81,6 +89,9 @@ final class ScenarioInventory {
      * practice; this only exists so a wedged server fails the scenario instead of hanging the client.
      */
     private static final long SERVER_READ_TIMEOUT_MS = 2000;
+
+
+
 
     static int countPlayer(TestArena arena, Item item) {
         return arena.ctx().player().getInventory().getNonEquipmentItems().stream()
