@@ -2,8 +2,8 @@
   "instances": 3,
   "scenarios": {
     "build-directional": {
-      "maxTicks": 80,
-      "medianTicks": 80,
+      "maxTicks": 81,
+      "medianTicks": 81,
       "minTicks": 80,
       "runs": 3,
       "status": "PASS",
@@ -14,7 +14,7 @@
     "build-observers": {
       "maxTicks": 102,
       "medianTicks": 102,
-      "minTicks": 102,
+      "minTicks": 101,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -22,9 +22,9 @@
       ]
     },
     "build-schematic": {
-      "maxTicks": 355,
-      "medianTicks": 355,
-      "minTicks": 350,
+      "maxTicks": 354,
+      "medianTicks": 353,
+      "minTicks": 353,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -42,7 +42,7 @@
       ]
     },
     "logs-axes": {
-      "maxTicks": 57,
+      "maxTicks": 55,
       "medianTicks": 54,
       "minTicks": 54,
       "runs": 3,
@@ -52,7 +52,7 @@
       ]
     },
     "pathing-course": {
-      "maxTicks": 247,
+      "maxTicks": 248,
       "medianTicks": 247,
       "minTicks": 246,
       "runs": 3,
@@ -62,9 +62,9 @@
       ]
     },
     "restock-from-box": {
-      "maxTicks": 477,
-      "medianTicks": 469,
-      "minTicks": 442,
+      "maxTicks": 454,
+      "medianTicks": 451,
+      "minTicks": 447,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -112,5 +112,5 @@
       ]
     }
   },
-  "wallClockSeconds": 188
+  "wallClockSeconds": 192
 }
