@@ -34,6 +34,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_REPORT = REPO_ROOT / "dist" / "testing" / "parallel-latest.json"
 DEFAULT_BASELINE = Path(__file__).resolve().parent / "baseline.json"
 
+
+def baseline_for(mc_version):
+    """The baseline file a report should be judged against.
+
+    One shared baseline across Minecraft versions would be meaningless: tick counts and wall clock
+    legitimately differ between versions, so every scenario would read as a timing change forever.
+    Reports carrying no version -- anything produced before v0.2 -- keep using the original file.
+    """
+    if not mc_version:
+        return DEFAULT_BASELINE
+    return DEFAULT_BASELINE.with_name(f"baseline-{mc_version}.json")
+
 # How much a scenario's median tick count may move before it is called a change. Scenario timings
 # are genuinely noisy -- chunk loading, pathfinding thread scheduling -- so a tight threshold would
 # cry wolf, and a suite that cries wolf gets ignored. 25% is wide enough to sit above that noise and
@@ -94,8 +106,9 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--report", default=DEFAULT_REPORT,
                         help="merged run to judge (default: dist/testing/parallel-latest.json)")
-    parser.add_argument("--baseline", default=DEFAULT_BASELINE,
-                        help="baseline to compare against (default: scripts/testing/baseline.json)")
+    parser.add_argument("--baseline", default=None,
+                        help="baseline to compare against (default: the one matching the report's "
+                             "Minecraft version, else scripts/testing/baseline.json)")
     parser.add_argument("--update", action="store_true",
                         help="overwrite the baseline with this report and exit")
     parser.add_argument("--tick-tolerance", type=float, default=DEFAULT_TICK_TOLERANCE,
@@ -106,6 +119,7 @@ def main():
 
     report = load(args.report, "report")
     current = aggregate(report)
+    baseline_path = args.baseline or baseline_for(report.get("mcVersion"))
 
     if args.update:
         payload = {
@@ -113,13 +127,13 @@ def main():
             "instances": len(report.get("instances", [])),
             "scenarios": current,
         }
-        Path(args.baseline).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        Path(baseline_path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
         passed = sum(1 for s in current.values() if s["status"] == PASS)
         print(f"baseline updated: {passed}/{len(current)} scenarios passing, "
-              f"{report.get('wallClockSeconds')}s wall clock -> {args.baseline}")
+              f"{report.get('wallClockSeconds')}s wall clock -> {baseline_path}")
         return 0
 
-    baseline = load(args.baseline, "baseline")
+    baseline = load(baseline_path, "baseline")
     previous = baseline.get("scenarios", {})
 
     regressions, improvements, notes = [], [], []
