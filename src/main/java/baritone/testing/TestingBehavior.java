@@ -30,6 +30,9 @@ import baritone.api.utils.Helper;
 import baritone.behavior.Behavior;
 import baritone.testing.scenario.AddBoxWrongOpenMenuScenario;
 import baritone.testing.scenario.DirectionalBuildScenario;
+import baritone.testing.scenario.DepositBulkAllowlistScenario;
+import baritone.testing.scenario.DepositBulkGuardsScenario;
+import baritone.testing.scenario.DepositBulkItemsScenario;
 import baritone.testing.scenario.DumpJunkOnlyScenario;
 import baritone.testing.scenario.DumpNeverStowsShulkersScenario;
 import baritone.testing.scenario.FuzzPathingScenario;
@@ -149,6 +152,7 @@ public final class TestingBehavior extends Behavior implements Helper {
         registerUncurated(ItemSaverSwordSubstituteScenario::new);
         registerUncurated(ItemSaverBareHandsScenario::new);
         registerUncurated(ItemSaverDisabledControlScenario::new);
+        registerUncurated(DepositBulkItemsScenario::new);
         registerUncurated(RestockMultipleBoxesScenario::new);
         registerUncurated(RestockEmptyIndexedBoxScenario::new);
         registerUncurated(RestockTwoMaterialsScenario::new);
@@ -156,6 +160,8 @@ public final class TestingBehavior extends Behavior implements Helper {
         registerUncurated(RestockStackSize16Scenario::new);
         registerUncurated(DumpJunkOnlyScenario::new);
         registerUncurated(DumpNeverStowsShulkersScenario::new);
+        registerUncurated(DepositBulkAllowlistScenario::new);
+        registerUncurated(DepositBulkGuardsScenario::new);
         registerUncurated(AddBoxWrongOpenMenuScenario::new);
         // Pathing route-choice and traversal scenarios.
         registerUncurated(PathLadderAscentScenario::new);

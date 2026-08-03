@@ -965,15 +965,21 @@ public final class RestockProcess extends BaritoneProcessHelper implements IRest
                                   boolean depositOnly, Map<Item, Integer> keptThrowaway) {
         if (worthKeeping == null
                 || stack.isEmpty()
-                || !(stack.getItem() instanceof BlockItem)
                 || stack.get(DataComponents.FOOD) != null
                 || stack.get(DataComponents.EQUIPPABLE) != null
                 || stack.get(DataComponents.TOOL) != null
                 || stack.get(DataComponents.WEAPON) != null) {
             return false;
         }
-        Block block = ((BlockItem) stack.getItem()).getBlock();
-        if (block instanceof CakeBlock || block instanceof ShulkerBoxBlock) {
+        if (stack.getItem() instanceof BlockItem blockItem) {
+            Block block = blockItem.getBlock();
+            if (block instanceof CakeBlock || block instanceof ShulkerBoxBlock) {
+                return false;
+            }
+        } else if (!Baritone.settings().depositableBulkItems.value.contains(stack.getItem())) {
+            // Not placeable and not named as bulk. This is the branch that keeps diamonds, totems,
+            // pearls and enchanted books out of the box, and it is why the fix for depositing raw
+            // ore is an allowlist rather than dropping the BlockItem test outright.
             return false;
         }
         if (Baritone.settings().acceptableThrowawayItems.value.contains(stack.getItem())) {
