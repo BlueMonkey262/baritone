@@ -15,6 +15,8 @@ import baritone.testing.TestArena;
 import baritone.testing.TestScenario;
 import baritone.utils.schematic.StaticSchematic;
 import net.minecraft.core.Vec3i;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -97,8 +99,10 @@ public final class RestockTwoMaterialsScenario extends TestScenario {
         if (!built(arena)) {
             return null;
         }
-        int whiteInBox = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Blocks.WHITE_CONCRETE.asItem());
-        int orangeInBox = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Blocks.ORANGE_CONCRETE.asItem());
+        Item whiteConcrete = ScenarioInventory.block("minecraft:white_concrete").asItem();
+        Item orangeConcrete = ScenarioInventory.block("minecraft:orange_concrete").asItem();
+        int whiteInBox = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, whiteConcrete);
+        int orangeInBox = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, orangeConcrete);
         if (whiteInBox >= BOX_COUNT || orangeInBox >= BOX_COUNT) {
             return Verdict.fail("the build completed but the box still has white=%d and orange=%d, so one depleted material was not fetched",
                     whiteInBox, orangeInBox);
@@ -108,13 +112,15 @@ public final class RestockTwoMaterialsScenario extends TestScenario {
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return "white targets=" + targetsPresent(arena, Blocks.WHITE_CONCRETE)
-                + "/2, orange targets=" + targetsPresent(arena, Blocks.ORANGE_CONCRETE) + "/2";
+        Block whiteConcrete = ScenarioInventory.block("minecraft:white_concrete");
+        Block orangeConcrete = ScenarioInventory.block("minecraft:orange_concrete");
+        return "white targets=" + targetsPresent(arena, whiteConcrete)
+                + "/2, orange targets=" + targetsPresent(arena, orangeConcrete) + "/2";
     }
 
     private static boolean built(TestArena arena) {
-        return targetsPresent(arena, Blocks.WHITE_CONCRETE) == 2
-                && targetsPresent(arena, Blocks.ORANGE_CONCRETE) == 2;
+        return targetsPresent(arena, ScenarioInventory.block("minecraft:white_concrete")) == 2
+                && targetsPresent(arena, ScenarioInventory.block("minecraft:orange_concrete")) == 2;
     }
 
     private static int targetsPresent(TestArena arena, net.minecraft.world.level.block.Block block) {
@@ -144,10 +150,12 @@ public final class RestockTwoMaterialsScenario extends TestScenario {
         }
         states[0][0][0] = Blocks.STONE.defaultBlockState();
         states[2][0][0] = Blocks.STONE.defaultBlockState();
-        states[0][0][1] = Blocks.WHITE_CONCRETE.defaultBlockState();
-        states[0][0][2] = Blocks.WHITE_CONCRETE.defaultBlockState();
-        states[2][0][1] = Blocks.ORANGE_CONCRETE.defaultBlockState();
-        states[2][0][2] = Blocks.ORANGE_CONCRETE.defaultBlockState();
+        Block whiteConcrete = ScenarioInventory.block("minecraft:white_concrete");
+        Block orangeConcrete = ScenarioInventory.block("minecraft:orange_concrete");
+        states[0][0][1] = whiteConcrete.defaultBlockState();
+        states[0][0][2] = whiteConcrete.defaultBlockState();
+        states[2][0][1] = orangeConcrete.defaultBlockState();
+        states[2][0][2] = orangeConcrete.defaultBlockState();
         return new StaticSchematic(states);
     }
 }

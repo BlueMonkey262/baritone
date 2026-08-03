@@ -15,6 +15,8 @@ import baritone.testing.TestArena;
 import baritone.testing.TestScenario;
 import baritone.utils.schematic.StaticSchematic;
 import net.minecraft.core.Vec3i;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -94,21 +96,23 @@ public final class RestockNearestSufficientBoxScenario extends TestScenario {
         world.getRestockBoxes().addBox(far);
         // Both have the same recorded sufficient contents, so distance is the decisive key.
         world.getRestockBoxes().updateContents(near,
-                Collections.singletonMap(Blocks.WHITE_CONCRETE.asItem(), BOX_COUNT));
+                Collections.singletonMap(ScenarioInventory.block("minecraft:white_concrete").asItem(), BOX_COUNT));
         world.getRestockBoxes().updateContents(far,
-                Collections.singletonMap(Blocks.WHITE_CONCRETE.asItem(), BOX_COUNT));
+                Collections.singletonMap(ScenarioInventory.block("minecraft:white_concrete").asItem(), BOX_COUNT));
         arena.baritone().getBuilderProcess().build("harness-" + name(), schematic(),
                 new Vec3i(arena.at(BUILD_X, 0, 0).x, arena.at(BUILD_X, 0, 0).y, arena.at(BUILD_X, 0, 0).z));
     }
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        if (!arena.stateAt(BUILD_X, 1, 0).is(Blocks.WHITE_CONCRETE)
-                || !arena.stateAt(BUILD_X, 2, 0).is(Blocks.WHITE_CONCRETE)) {
+        Block whiteConcrete = ScenarioInventory.block("minecraft:white_concrete");
+        if (!arena.stateAt(BUILD_X, 1, 0).is(whiteConcrete)
+                || !arena.stateAt(BUILD_X, 2, 0).is(whiteConcrete)) {
             return null;
         }
-        int near = ScenarioInventory.countContainer(arena, NEAR_X, 0, NEAR_Z, Blocks.WHITE_CONCRETE.asItem());
-        int far = ScenarioInventory.countContainer(arena, FAR_X, 0, FAR_Z, Blocks.WHITE_CONCRETE.asItem());
+        Item whiteConcreteItem = ScenarioInventory.block("minecraft:white_concrete").asItem();
+        int near = ScenarioInventory.countContainer(arena, NEAR_X, 0, NEAR_Z, whiteConcreteItem);
+        int far = ScenarioInventory.countContainer(arena, FAR_X, 0, FAR_Z, whiteConcreteItem);
         if (near >= BOX_COUNT || far != BOX_COUNT) {
             return Verdict.fail("the two targets were built but the nearer box has %d and farther box has %d white concrete", near, far);
         }
@@ -117,15 +121,17 @@ public final class RestockNearestSufficientBoxScenario extends TestScenario {
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return "near white=" + ScenarioInventory.countContainer(arena, NEAR_X, 0, NEAR_Z, Blocks.WHITE_CONCRETE.asItem())
-                + ", far white=" + ScenarioInventory.countContainer(arena, FAR_X, 0, FAR_Z, Blocks.WHITE_CONCRETE.asItem());
+        Item whiteConcrete = ScenarioInventory.block("minecraft:white_concrete").asItem();
+        return "near white=" + ScenarioInventory.countContainer(arena, NEAR_X, 0, NEAR_Z, whiteConcrete)
+                + ", far white=" + ScenarioInventory.countContainer(arena, FAR_X, 0, FAR_Z, whiteConcrete);
     }
 
     private static StaticSchematic schematic() {
         BlockState[][][] states = new BlockState[1][1][3];
         states[0][0][0] = Blocks.STONE.defaultBlockState();
-        states[0][0][1] = Blocks.WHITE_CONCRETE.defaultBlockState();
-        states[0][0][2] = Blocks.WHITE_CONCRETE.defaultBlockState();
+        Block whiteConcrete = ScenarioInventory.block("minecraft:white_concrete");
+        states[0][0][1] = whiteConcrete.defaultBlockState();
+        states[0][0][2] = whiteConcrete.defaultBlockState();
         return new StaticSchematic(states);
     }
 }

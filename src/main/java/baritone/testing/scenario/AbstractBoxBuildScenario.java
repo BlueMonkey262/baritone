@@ -49,7 +49,7 @@ abstract class AbstractBoxBuildScenario extends TestScenario {
     /** Ring perimeter times height: the number of blocks the builder must place. */
     static final int TOTAL_BLOCKS = (SIDE * SIDE - (SIDE - 2) * (SIDE - 2)) * HEIGHT;
 
-    static final Block MATERIAL = Blocks.WHITE_CONCRETE;
+    static final Block MATERIAL = ScenarioInventory.block("minecraft:white_concrete");
     static final String MATERIAL_ID = "minecraft:white_concrete";
 
     /** Where the structure sits, relative to the arena origin. */

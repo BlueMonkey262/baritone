@@ -127,7 +127,7 @@ public final class RestockMultipleBoxesScenario extends AbstractBoxBuildScenario
         // The nearer box holds white but no orange. On the old H5 behavior, that one miss put the
         // whole box in failedThisBuild, so it could not later supply its white concrete.
         boolean requested = arena.baritone().getRestockProcess().requestRestock(
-                Collections.singletonMap(Blocks.ORANGE_CONCRETE.defaultBlockState(), 1), stack -> true);
+                Collections.singletonMap(ScenarioInventory.block("minecraft:orange_concrete").defaultBlockState(), 1), stack -> true);
         arena.note("requested orange-concrete probe before the white build: %b", requested);
     }
 
@@ -175,7 +175,7 @@ public final class RestockMultipleBoxesScenario extends AbstractBoxBuildScenario
 
     private static int countPlayerMaterial(TestArena arena) {
         return arena.ctx().player().getInventory().getNonEquipmentItems().stream()
-                .filter(stack -> stack.is(Blocks.WHITE_CONCRETE.asItem()))
+                .filter(stack -> stack.is(ScenarioInventory.block("minecraft:white_concrete").asItem()))
                 .mapToInt(ItemStack::getCount)
                 .sum();
     }

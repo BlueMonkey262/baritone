@@ -113,7 +113,7 @@ public final class RestockEmptyIndexedBoxScenario extends AbstractBoxBuildScenar
         // Candidate ordering puts indexed contents before unindexed boxes, then breaks ties by
         // distance: this farther stale entry must therefore be selected before the nearer fallback.
         world.getRestockBoxes().updateContents(empty,
-                Collections.singletonMap(Blocks.WHITE_CONCRETE.asItem(), RECORDED_COUNT));
+                Collections.singletonMap(ScenarioInventory.block("minecraft:white_concrete").asItem(), RECORDED_COUNT));
         arena.note("registered farther stale index %s -> %d %s; its live box is empty; nearer fallback %s remains unindexed",
                 empty, RECORDED_COUNT, MATERIAL_ID, stocked);
     }

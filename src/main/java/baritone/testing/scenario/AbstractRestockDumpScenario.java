@@ -17,7 +17,7 @@ import baritone.utils.schematic.StaticSchematic;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.item.Item;
-import net.minecraft.world.item.Items;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -32,14 +32,23 @@ abstract class AbstractRestockDumpScenario extends TestScenario {
     private static final int BOX_X = 2;
     private static final int BOX_Z = 4;
     private static final Item[] JUNK_ITEMS = {
-            Items.RED_CONCRETE, Items.ORANGE_CONCRETE, Items.YELLOW_CONCRETE, Items.LIME_CONCRETE,
-            Items.GREEN_CONCRETE, Items.CYAN_CONCRETE, Items.LIGHT_BLUE_CONCRETE, Items.BLUE_CONCRETE,
-            Items.PURPLE_CONCRETE, Items.MAGENTA_CONCRETE, Items.PINK_CONCRETE, Items.BROWN_CONCRETE,
-            Items.BLACK_CONCRETE, Items.GRAY_CONCRETE, Items.LIGHT_GRAY_CONCRETE, Items.RED_WOOL,
-            Items.ORANGE_WOOL, Items.YELLOW_WOOL, Items.LIME_WOOL, Items.GREEN_WOOL, Items.CYAN_WOOL,
-            Items.LIGHT_BLUE_WOOL, Items.BLUE_WOOL, Items.PURPLE_WOOL, Items.MAGENTA_WOOL, Items.PINK_WOOL,
-            Items.BROWN_WOOL, Items.BLACK_WOOL, Items.GRAY_WOOL, Items.LIGHT_GRAY_WOOL, Items.WHITE_WOOL,
-            Items.TERRACOTTA, Items.RED_TERRACOTTA, Items.ORANGE_TERRACOTTA
+            ScenarioInventory.item("minecraft:red_concrete"), ScenarioInventory.item("minecraft:orange_concrete"),
+            ScenarioInventory.item("minecraft:yellow_concrete"), ScenarioInventory.item("minecraft:lime_concrete"),
+            ScenarioInventory.item("minecraft:green_concrete"), ScenarioInventory.item("minecraft:cyan_concrete"),
+            ScenarioInventory.item("minecraft:light_blue_concrete"), ScenarioInventory.item("minecraft:blue_concrete"),
+            ScenarioInventory.item("minecraft:purple_concrete"), ScenarioInventory.item("minecraft:magenta_concrete"),
+            ScenarioInventory.item("minecraft:pink_concrete"), ScenarioInventory.item("minecraft:brown_concrete"),
+            ScenarioInventory.item("minecraft:black_concrete"), ScenarioInventory.item("minecraft:gray_concrete"),
+            ScenarioInventory.item("minecraft:light_gray_concrete"), ScenarioInventory.item("minecraft:red_wool"),
+            ScenarioInventory.item("minecraft:orange_wool"), ScenarioInventory.item("minecraft:yellow_wool"),
+            ScenarioInventory.item("minecraft:lime_wool"), ScenarioInventory.item("minecraft:green_wool"),
+            ScenarioInventory.item("minecraft:cyan_wool"), ScenarioInventory.item("minecraft:light_blue_wool"),
+            ScenarioInventory.item("minecraft:blue_wool"), ScenarioInventory.item("minecraft:purple_wool"),
+            ScenarioInventory.item("minecraft:magenta_wool"), ScenarioInventory.item("minecraft:pink_wool"),
+            ScenarioInventory.item("minecraft:brown_wool"), ScenarioInventory.item("minecraft:black_wool"),
+            ScenarioInventory.item("minecraft:gray_wool"), ScenarioInventory.item("minecraft:light_gray_wool"),
+            ScenarioInventory.item("minecraft:white_wool"), ScenarioInventory.item("minecraft:terracotta"),
+            ScenarioInventory.item("minecraft:red_terracotta"), ScenarioInventory.item("minecraft:orange_terracotta")
     };
 
     protected abstract boolean keepShulker();
@@ -105,16 +114,17 @@ abstract class AbstractRestockDumpScenario extends TestScenario {
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        if (!arena.stateAt(BUILD_X, 1, 0).is(Blocks.WHITE_CONCRETE)
-                || !arena.stateAt(BUILD_X, 2, 0).is(Blocks.WHITE_CONCRETE)) {
+        Block whiteConcrete = ScenarioInventory.block("minecraft:white_concrete");
+        if (!arena.stateAt(BUILD_X, 1, 0).is(whiteConcrete)
+                || !arena.stateAt(BUILD_X, 2, 0).is(whiteConcrete)) {
             return null;
         }
         int dumped = junkInBox(arena);
-        int white = ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem());
+        int white = ScenarioInventory.countPlayer(arena, ScenarioInventory.block("minecraft:white_concrete").asItem());
         if (dumped <= 0 || white <= 0) {
             return Verdict.fail("the build completed with %d junk items deposited and %d white concrete retained", dumped, white);
         }
-        if (keepShulker() && ScenarioInventory.countPlayer(arena, Blocks.BLUE_SHULKER_BOX.asItem()) != 1) {
+        if (keepShulker() && ScenarioInventory.countPlayer(arena, ScenarioInventory.block("minecraft:blue_shulker_box").asItem()) != 1) {
             return Verdict.fail("the build completed, but the blue shulker box was stowed or lost during unloading");
         }
         return Verdict.pass(successMessage(dumped, white));
@@ -122,8 +132,9 @@ abstract class AbstractRestockDumpScenario extends TestScenario {
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return "first target=" + arena.stateAt(BUILD_X, 1, 0).is(Blocks.WHITE_CONCRETE)
-                + ", second target=" + arena.stateAt(BUILD_X, 2, 0).is(Blocks.WHITE_CONCRETE)
+        Block whiteConcrete = ScenarioInventory.block("minecraft:white_concrete");
+        return "first target=" + arena.stateAt(BUILD_X, 1, 0).is(whiteConcrete)
+                + ", second target=" + arena.stateAt(BUILD_X, 2, 0).is(whiteConcrete)
                 + ", junk in box=" + junkInBox(arena);
     }
 
@@ -142,8 +153,9 @@ abstract class AbstractRestockDumpScenario extends TestScenario {
     private static StaticSchematic schematic() {
         BlockState[][][] states = new BlockState[1][1][3];
         states[0][0][0] = Blocks.STONE.defaultBlockState();
-        states[0][0][1] = Blocks.WHITE_CONCRETE.defaultBlockState();
-        states[0][0][2] = Blocks.WHITE_CONCRETE.defaultBlockState();
+        Block whiteConcrete = ScenarioInventory.block("minecraft:white_concrete");
+        states[0][0][1] = whiteConcrete.defaultBlockState();
+        states[0][0][2] = whiteConcrete.defaultBlockState();
         return new StaticSchematic(states);
     }
 }

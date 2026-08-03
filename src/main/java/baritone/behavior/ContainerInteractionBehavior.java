@@ -182,9 +182,9 @@ public final class ContainerInteractionBehavior extends Behavior {
         }
         if (openContainer() != null) {
             ctx.player().closeContainer();
-        } else if (ctx.minecraft().screen instanceof AbstractContainerScreen) {
+        } else if (ctx.minecraft().gui.screen() instanceof AbstractContainerScreen) {
             // the menu is already gone but its screen lingered
-            ctx.minecraft().setScreen(null);
+            ctx.minecraft().gui.setScreen(null);
         }
         resetSync();
     }

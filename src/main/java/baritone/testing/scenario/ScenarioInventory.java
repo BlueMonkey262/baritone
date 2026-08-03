@@ -10,14 +10,30 @@
 package baritone.testing.scenario;
 
 import baritone.testing.TestArena;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 
 /** Small world/inventory readers shared by container scenarios; none inspect chat or logs. */
 final class ScenarioInventory {
 
     private ScenarioInventory() {}
+
+    static Block block(String id) {
+        return BuiltInRegistries.BLOCK.get(Identifier.parse(id))
+                .map(Holder.Reference::value)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown test block: " + id));
+    }
+
+    static Item item(String id) {
+        return BuiltInRegistries.ITEM.get(Identifier.parse(id))
+                .map(Holder.Reference::value)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown test item: " + id));
+    }
 
     static int countPlayer(TestArena arena, Item item) {
         return arena.ctx().player().getInventory().getNonEquipmentItems().stream()

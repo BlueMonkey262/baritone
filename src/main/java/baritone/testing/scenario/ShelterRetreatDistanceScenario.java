@@ -159,6 +159,6 @@ public final class ShelterRetreatDistanceScenario extends TestScenario {
     }
 
     private static StaticSchematic schematic() {
-        return new StaticSchematic(new BlockState[][][]{{{Blocks.WHITE_CONCRETE.defaultBlockState()}}});
+        return new StaticSchematic(new BlockState[][][]{{{ScenarioInventory.block("minecraft:white_concrete").defaultBlockState()}}});
     }
 }
