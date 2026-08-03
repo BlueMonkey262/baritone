@@ -74,9 +74,9 @@ public final class AddBoxWrongOpenMenuScenario extends TestScenario {
         arena.fill(-4, 0, -4, 8, 4, 4, "minecraft:air");
         // Different contents make an accidental borrowed index unambiguous.
         arena.setBlock(OPEN_BOX_X, 0, BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:dirt\",count:17,Slot:0b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:dirt\",Count:17b,Slot:0b}]}");
         arena.setBlock(REGISTERED_BOX_X, 0, BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",count:31,Slot:0b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",Count:31b,Slot:0b}]}");
         arena.teleport(0, 0, 0);
     }
 

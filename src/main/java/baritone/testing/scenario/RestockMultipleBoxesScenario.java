@@ -92,10 +92,10 @@ public final class RestockMultipleBoxesScenario extends AbstractBoxBuildScenario
         // the harness's known version-sensitive shulker form.
         arena.setBlock(SECOND_WHITE_BOX_X, 0, SECOND_WHITE_BOX_Z,
                 "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID
-                        + "\",count:" + SECOND_WHITE_COUNT + ",Slot:0b}]}");
+                        + "\",Count:" + SECOND_WHITE_COUNT + "b,Slot:0b}]}");
         arena.setBlock(FIRST_WHITE_BOX_X, 0, FIRST_WHITE_BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",count:"
-                        + FIRST_WHITE_COUNT + ",Slot:0b},{id:\"minecraft:orange_concrete\",count:1,Slot:1b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",Count:"
+                        + FIRST_WHITE_COUNT + "b,Slot:0b},{id:\"minecraft:orange_concrete\",Count:1b,Slot:1b}]}");
     }
 
     @Override

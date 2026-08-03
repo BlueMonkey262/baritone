@@ -1,0 +1,435 @@
+{
+  "mcVersion": "1.20.1",
+  "wallClockSeconds": 183,
+  "instances": [
+    "tenor-testing-1.20.1-1",
+    "tenor-testing-1.20.1-2",
+    "tenor-testing-1.20.1-3"
+  ],
+  "timedOut": [],
+  "passed": 29,
+  "total": 33,
+  "scenarios": [
+    {
+      "name": "pathing-course",
+      "status": "PASS",
+      "message": "reached the goal in 254 ticks (12.7s)",
+      "ticks": 254,
+      "tickBudget": 3600,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=42,y=-52,z=-4}"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "water-detour",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=540,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "water-detour-x8",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, waterCostMultiplier=8.0, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=1052,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "water-detour-x30",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, waterCostMultiplier=30.0, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=1564,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "build-schematic",
+      "status": "PASS",
+      "message": "all 48 blocks placed in 352 ticks (17.6s)",
+      "ticks": 352,
+      "tickBudget": 3600,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true}",
+        "building 48 blocks of minecraft:white_concrete at BetterBlockPos{x=2052,y=-56,z=-6}"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "build-directional",
+      "status": "PASS",
+      "message": "all 4 stairs placed facing the right way in 82 ticks (4.1s)",
+      "ticks": 82,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 4 oak stairs at BetterBlockPos{x=2564,y=-56,z=-4}, facings north, east, south, west"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "stairs-halves",
+      "status": "PASS",
+      "message": "all 8 stairs placed with the right facing and half in 454 ticks (22.7s)",
+      "ticks": 454,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 8 oak stairs at BetterBlockPos{x=3076,y=-56,z=-7}: four facings in each of bottom and top halves"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "logs-axes",
+      "status": "PASS",
+      "message": "all 3 oak logs placed on the right axes in 52 ticks (2.6s)",
+      "ticks": 52,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 3 oak logs at BetterBlockPos{x=3588,y=-56,z=-4}, axes x, y, z"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "build-observers",
+      "status": "PASS",
+      "message": "all 6 observers placed with the right facing in 107 ticks (5.4s)",
+      "ticks": 107,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 6 observers at BetterBlockPos{x=4,y=-56,z=-4} with facings north, east, south, west, up, down",
+        "up-facing target uses the underside of a block above it plus a side support for the placement gate; down-facing target has an adjacent y+1 ledge"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "restock-from-box",
+      "status": "FAIL",
+      "message": "builder stopped with 16 of 48 blocks missing",
+      "ticks": 302,
+      "tickBudget": 6000,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockIndexBeforeBuild=true, restockFromBoxes=true, allowBreak=true}",
+        "registered an unindexed box at BetterBlockPos{x=512,y=-56,z=0} holding 64 minecraft:white_concrete",
+        "building 48 blocks of minecraft:white_concrete at BetterBlockPos{x=516,y=-56,z=-6}",
+        "restock took control at t=0s, with 0 blocks placed",
+        "restock took control mid-build at t=1s, with 1 of 48 placed"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "hoppers-facing",
+      "status": "PASS",
+      "message": "all five hoppers point at their declared stone supports in 96 ticks (4.8s)",
+      "ticks": 96,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building five hoppers at BetterBlockPos{x=1028,y=-56,z=-5} with one declared stone support per facing"
+      ],
+      "instance": "tenor-testing-1.20.1-1"
+    },
+    {
+      "name": "pathing-course",
+      "status": "PASS",
+      "message": "reached the goal in 261 ticks (13.1s)",
+      "ticks": 261,
+      "tickBudget": 3600,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=42,y=-52,z=-4}"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "water-detour",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=540,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "water-detour-x8",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, waterCostMultiplier=8.0, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=1052,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "water-detour-x30",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, waterCostMultiplier=30.0, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=1564,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "build-schematic",
+      "status": "PASS",
+      "message": "all 48 blocks placed in 366 ticks (18.3s)",
+      "ticks": 366,
+      "tickBudget": 3600,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true}",
+        "building 48 blocks of minecraft:white_concrete at BetterBlockPos{x=2052,y=-56,z=-6}"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "build-directional",
+      "status": "PASS",
+      "message": "all 4 stairs placed facing the right way in 82 ticks (4.1s)",
+      "ticks": 82,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 4 oak stairs at BetterBlockPos{x=2564,y=-56,z=-4}, facings north, east, south, west"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "stairs-halves",
+      "status": "PASS",
+      "message": "all 8 stairs placed with the right facing and half in 456 ticks (22.8s)",
+      "ticks": 456,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 8 oak stairs at BetterBlockPos{x=3076,y=-56,z=-7}: four facings in each of bottom and top halves"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "logs-axes",
+      "status": "PASS",
+      "message": "all 3 oak logs placed on the right axes in 52 ticks (2.6s)",
+      "ticks": 52,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 3 oak logs at BetterBlockPos{x=3588,y=-56,z=-4}, axes x, y, z"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "build-observers",
+      "status": "PASS",
+      "message": "all 6 observers placed with the right facing in 109 ticks (5.5s)",
+      "ticks": 109,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 6 observers at BetterBlockPos{x=4,y=-56,z=-4} with facings north, east, south, west, up, down",
+        "up-facing target uses the underside of a block above it plus a side support for the placement gate; down-facing target has an adjacent y+1 ledge"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "restock-from-box",
+      "status": "FAIL",
+      "message": "builder stopped with 16 of 48 blocks missing",
+      "ticks": 321,
+      "tickBudget": 6000,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockIndexBeforeBuild=true, restockFromBoxes=true, allowBreak=true}",
+        "registered an unindexed box at BetterBlockPos{x=512,y=-56,z=0} holding 64 minecraft:white_concrete",
+        "building 48 blocks of minecraft:white_concrete at BetterBlockPos{x=516,y=-56,z=-6}",
+        "restock took control at t=0s, with 0 blocks placed",
+        "restock took control mid-build at t=1s, with 1 of 48 placed"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "hoppers-facing",
+      "status": "PASS",
+      "message": "all five hoppers point at their declared stone supports in 98 ticks (4.9s)",
+      "ticks": 98,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building five hoppers at BetterBlockPos{x=1028,y=-56,z=-5} with one declared stone support per facing"
+      ],
+      "instance": "tenor-testing-1.20.1-2"
+    },
+    {
+      "name": "pathing-course",
+      "status": "STAGING_FAILED",
+      "message": "the server rejected 6 staging command(s), so the arena is not what the scenario asked for; first was: Incorrect argument for command",
+      "ticks": 0,
+      "tickBudget": 3600,
+      "notes": [
+        "rejected: Incorrect argument for command",
+        "rejected: Incorrect argument for command",
+        "rejected: Incorrect argument for command",
+        "rejected: Incorrect argument for command",
+        "rejected: Incorrect argument for command",
+        "rejected: Incorrect argument for command"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "water-detour",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=540,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "water-detour-x8",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, waterCostMultiplier=8.0, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=1052,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "water-detour-x30",
+      "status": "PASS",
+      "message": "went around, reaching the goal in 130 ticks (6.5s); 0 ticks wet, 0 of them inside the pool",
+      "ticks": 130,
+      "tickBudget": 2400,
+      "notes": [
+        "settings for this scenario: {allowPlace=false, waterCostMultiplier=30.0, allowParkour=false, allowBreak=false}",
+        "goal is BetterBlockPos{x=1564,y=-56,z=-4}, across an 11 block pool with a dry strip at z+7 and beyond",
+        "first path: 31 blocks, 204 nodes considered, ends at x+30 z+0, reaches goal: true"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "build-schematic",
+      "status": "PASS",
+      "message": "all 48 blocks placed in 350 ticks (17.5s)",
+      "ticks": 350,
+      "tickBudget": 3600,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true}",
+        "building 48 blocks of minecraft:white_concrete at BetterBlockPos{x=2052,y=-56,z=-6}"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "build-directional",
+      "status": "PASS",
+      "message": "all 4 stairs placed facing the right way in 82 ticks (4.1s)",
+      "ticks": 82,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 4 oak stairs at BetterBlockPos{x=2564,y=-56,z=-4}, facings north, east, south, west"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "stairs-halves",
+      "status": "PASS",
+      "message": "all 8 stairs placed with the right facing and half in 455 ticks (22.8s)",
+      "ticks": 455,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 8 oak stairs at BetterBlockPos{x=3076,y=-56,z=-7}: four facings in each of bottom and top halves"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "logs-axes",
+      "status": "PASS",
+      "message": "all 3 oak logs placed on the right axes in 52 ticks (2.6s)",
+      "ticks": 52,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 3 oak logs at BetterBlockPos{x=3588,y=-56,z=-4}, axes x, y, z"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "build-observers",
+      "status": "PASS",
+      "message": "all 6 observers placed with the right facing in 107 ticks (5.4s)",
+      "ticks": 107,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building 6 observers at BetterBlockPos{x=4,y=-56,z=-4} with facings north, east, south, west, up, down",
+        "up-facing target uses the underside of a block above it plus a side support for the placement gate; down-facing target has an adjacent y+1 ledge"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "restock-from-box",
+      "status": "FAIL",
+      "message": "builder stopped with 16 of 48 blocks missing",
+      "ticks": 294,
+      "tickBudget": 6000,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockIndexBeforeBuild=true, restockFromBoxes=true, allowBreak=true}",
+        "registered an unindexed box at BetterBlockPos{x=512,y=-56,z=0} holding 64 minecraft:white_concrete",
+        "building 48 blocks of minecraft:white_concrete at BetterBlockPos{x=516,y=-56,z=-6}",
+        "restock took control at t=0s, with 0 blocks placed",
+        "restock took control mid-build at t=1s, with 1 of 48 placed"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    },
+    {
+      "name": "hoppers-facing",
+      "status": "PASS",
+      "message": "all five hoppers point at their declared stone supports in 96 ticks (4.8s)",
+      "ticks": 96,
+      "tickBudget": 4800,
+      "notes": [
+        "settings for this scenario: {allowPlace=true, allowInventory=true, restockFromBoxes=false, allowBreak=true, buildOrientBeforePlacing=true, buildIgnoreDirection=false}",
+        "building five hoppers at BetterBlockPos{x=1028,y=-56,z=-5} with one declared stone support per facing"
+      ],
+      "instance": "tenor-testing-1.20.1-3"
+    }
+  ]
+}

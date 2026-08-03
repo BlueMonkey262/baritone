@@ -80,7 +80,7 @@ abstract class AbstractRestockDumpScenario extends TestScenario {
         arena.setBlock(BUILD_X, 0, 0, "minecraft:stone");
         // Keep this 26.1.2 item-NBT form in lockstep with RestockFromBoxScenario.
         arena.setBlock(BOX_X, 0, BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",count:64,Slot:0b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",Count:64b,Slot:0b}]}");
         arena.teleport(0, 0, 0);
     }
 

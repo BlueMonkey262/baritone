@@ -66,7 +66,7 @@ public final class RestockStackSize16Scenario extends TestScenario {
         arena.setBlock(BUILD_X + 2, 0, 0, "minecraft:stone");
         // Keep this 26.1.2 item-NBT form in lockstep with RestockFromBoxScenario.
         arena.setBlock(BOX_X, 0, BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:oak_sign\",count:16,Slot:0b},{id:\"minecraft:oak_sign\",count:16,Slot:1b},{id:\"minecraft:oak_sign\",count:16,Slot:2b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:oak_sign\",Count:16b,Slot:0b},{id:\"minecraft:oak_sign\",Count:16b,Slot:1b},{id:\"minecraft:oak_sign\",Count:16b,Slot:2b}]}");
         arena.teleport(0, 0, 0);
     }
 
