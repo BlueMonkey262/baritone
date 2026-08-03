@@ -23,7 +23,9 @@ are intentionally not triaged here.
 | H6 | sol-high-review.md | Container session ownership is unproven | high | FORK | PARTIAL | None |
 | H7 | sol-high-review.md | Right-click is one-shot | high | FORK | FIXED | None |
 | H8 | sol-high-review.md | Transfers settle before success is assumed | high | FORK | PARTIAL | restock-from-box (normal path) |
-| T-01 | 2026-08-02 session | Harness cannot read container contents | high | FORK | OPEN | none possible until fixed |
+| T-01 | 2026-08-02 session | Harness cannot read container contents | high | FORK | FIXED | container-readable-{positive,negative}-control |
+| T-04 | 2026-08-03 run | Mine quantity ignores drops already held | medium | UPSTREAM? | OPEN | mine-existing-quantity |
+| T-05 | 2026-08-03 run | Full-inventory retry skips the capacity deposit | medium | FORK? | OPEN | container-exact-deposit-destination |
 | T-02 | 2026-08-02 session | Observer facing wrong, and never corrected | high | FORK | OPEN | build-observers (intermittent) |
 | T-03 | 2026-08-02 session | 1.20.1/1.21.1 shims drop wearable-block guard | medium | FORK | OPEN | none |
 | H9 | sol-high-review.md | Capacity failure retries after dumping | high | FORK | FIXED | None for full-inventory case |
@@ -510,3 +512,39 @@ Two further divergences found in the same audit, recorded here so they are not l
 rocket gets no boost on 1.20.1 (the port reads a legacy `Fireworks` compound that a default rocket
 does not have), and tool searches are narrowed to `PickaxeItem`/`DiggerItem`, dropping axes, shovels,
 hoes and shears.
+
+
+## T-04 — A mine quantity ignores matching drops already in the inventory
+
+`mine-existing-quantity` stages two cobblestone and three stone, requests `mine(2, STONE)`, and
+expects the process to cancel before breaking anything. It broke a stone.
+
+The guard is present and its semantics match the scenario. `MineProcess.onTick` sums inventory
+stacks accepted by the filter and cancels when `curr >= desiredQuantity`, and `IMineProcess`
+documents quantity as "the total number of items to get". So the failure implies
+`BlockOptionalMetaLookup.has(cobblestone)` returns false for a stone filter — drop recognition,
+not quantity accounting.
+
+**Origin is probably UPSTREAM, not FORK.** `BlockOptionalMeta` and `BlockOptionalMetaLookup` are
+unmodified against `upstream/26.1`; our fork's 100 added lines in `MineProcess` are elsewhere. If
+the drop hashes are built from a loot-table lookup that yields nothing client-side, this is
+upstream behaviour and the question becomes whether we work around it or accept it.
+
+Not yet confirmed by instrumentation: nobody has logged what `has()` actually returns for
+cobblestone here. That single observation settles it.
+
+## T-05 — A full-inventory retry can skip the capacity-recovery deposit
+
+`container-exact-deposit-destination` stages a full 36-slot inventory, one white concrete in the
+registered box, and a red-concrete junk stack. At t=112 the white source was emptied and the target
+placed, but the destination still read `red=0` while the player carried `red=1`. With
+`restockDumpJunk=true` the junk should have been deposited to recover capacity before the fetch was
+retried.
+
+Triage places this in the `tickTransferring` → `afterContainerWork` → `tickDepositing` handoff: the
+retry obtained the wanted material while leaving the known junk stack in the inventory.
+
+This is the first defect found by a container assertion since T-01 was fixed, which is the point of
+having fixed it — the number `red=0` is now meaningful where a week ago every container read
+returned zero regardless of truth. It is also why this entry is marked FORK? rather than FORK: the
+oracle has been trustworthy for one run, and one run is not a track record.
