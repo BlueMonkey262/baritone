@@ -35,6 +35,15 @@ import baritone.testing.scenario.DumpNeverStowsShulkersScenario;
 import baritone.testing.scenario.FuzzPathingScenario;
 import baritone.testing.scenario.HoppersFacingScenario;
 import baritone.testing.scenario.LogsAxesScenario;
+import baritone.testing.scenario.LargeBuildPerformanceScenario;
+import baritone.testing.scenario.MineDelayedDropScenario;
+import baritone.testing.scenario.MineExactQuantityScenario;
+import baritone.testing.scenario.MineIceVariantsScenario;
+import baritone.testing.scenario.MineNoToolFallbackScenario;
+import baritone.testing.scenario.MineOreBehindWaterScenario;
+import baritone.testing.scenario.MineStackedDropsScenario;
+import baritone.testing.scenario.MineToolSelectionScenario;
+import baritone.testing.scenario.MineVisibleOnlyScenario;
 import baritone.testing.scenario.ObserverBuildScenario;
 import baritone.testing.scenario.PathCobwebAvoidanceScenario;
 import baritone.testing.scenario.PathFallSafetyScenario;
@@ -44,6 +53,8 @@ import baritone.testing.scenario.PathLadderDescentScenario;
 import baritone.testing.scenario.PathNoBreakDetourScenario;
 import baritone.testing.scenario.PathingCourseScenario;
 import baritone.testing.scenario.PistonObserverPairScenario;
+import baritone.testing.scenario.PickupExpiryScenario;
+import baritone.testing.scenario.PickupOwnedDropOnlyScenario;
 import baritone.testing.scenario.RepeatersDelaysScenario;
 import baritone.testing.scenario.RestockEmptyIndexedBoxScenario;
 import baritone.testing.scenario.RestockFromBoxScenario;
@@ -164,6 +175,20 @@ public final class TestingBehavior extends Behavior implements Helper {
         registerUncurated(RepeatersDelaysScenario::new);
         registerUncurated(ShelterRetreatDistanceScenario::new);
         registerUncurated(UnreachableBuildTargetScenario::new);
+        // Mining scenarios from TEST_BACKLOG.md entries 41-50.
+        registerUncurated(MineExactQuantityScenario::new);
+        registerUncurated(MineVisibleOnlyScenario::new);
+        registerUncurated(MineToolSelectionScenario::new);
+        registerUncurated(MineNoToolFallbackScenario::new);
+        registerUncurated(MineDelayedDropScenario::new);
+        registerUncurated(MineStackedDropsScenario::new);
+        registerUncurated(MineOreBehindWaterScenario::new);
+        registerUncurated(MineIceVariantsScenario::new);
+        registerUncurated(PickupOwnedDropOnlyScenario::new);
+        registerUncurated(PickupExpiryScenario::new);
+        // This is deliberately uncurated: a human must establish the baseline on a real run before
+        // the bound becomes a curated performance gate.
+        registerUncurated(LargeBuildPerformanceScenario::new);
         for (int seed = 1; seed <= FUZZ_COUNT; seed++) {
             final int captured = seed;
             registerUncurated(() -> new FuzzPathingScenario(captured));
