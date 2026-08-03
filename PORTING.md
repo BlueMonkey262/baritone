@@ -41,6 +41,34 @@ message can look like a local environment problem even when the port itself is c
 Use the loader versions for the target branch; do not infer them from the Java version. The
 compiler and Gradle configuration are the source of truth after the properties are changed.
 
+## 2a. Bring across everything the fork changed, not just `src/`
+
+**This is the step that has already gone wrong.** Every port done on 2026-08-02/03 enumerated the
+fork's files with
+
+    git diff --name-only upstream/26.1 shulker-restock -- src
+
+and `-- src` silently excludes `buildSrc/`. Five of the seven branches therefore kept upstream's
+`ProguardTask`, which is why the 26.2 port hit ProGuard's missing-`jmods` failure and worked around
+it by assembling a JDK under `/tmp` — solving, badly, a problem the canonical branch had already
+solved properly.
+
+Enumerate without the path filter and review what comes back:
+
+    git diff --name-only upstream/26.1 shulker-restock
+
+Four areas outside `src/` carry fork changes and all four matter:
+
+| Path | Why it matters |
+|---|---|
+| `buildSrc/` | `ProguardTask` — packaging fails or silently shrinks against missing classes without it |
+| `settings.gradle` | the foojay resolver; without it the build cannot resolve a toolchain at all |
+| `gradle.properties` | version and loader properties, which you are editing anyway |
+| `scripts/testing/` | the harness runner; needed to run the suite against the new version |
+
+A port that compiles and passes `:test` can still be missing all of these, because none of them is
+reachable from a compile error.
+
 ## 3. Adapt the source
 
 Compile the new branch and fix what the compiler reports. For the 1.21.11 → 26.1 adaptation, all
