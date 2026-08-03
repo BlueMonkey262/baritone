@@ -82,7 +82,7 @@ public final class RestockFromBoxScenario extends AbstractBoxBuildScenario {
         // item NBT shape has changed before and will again. If this scenario reports the box as
         // missing, check this command against the current format before suspecting Baritone.
         arena.setBlock(BOX_X, 0, BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",count:64,Slot:0b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",Count:64b,Slot:0b}]}");
     }
 
     @Override

@@ -82,11 +82,11 @@ public final class RestockEmptyIndexedBoxScenario extends AbstractBoxBuildScenar
         // live box the restock process will open, while beforeBuild installs that earlier snapshot
         // in the persistent collection exactly as a previous indexing run would have done.
         arena.setBlock(EMPTY_BOX_X, 0, EMPTY_BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",count:"
-                        + RECORDED_COUNT + ",Slot:0b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",Count:"
+                        + RECORDED_COUNT + "b,Slot:0b}]}");
         arena.setBlock(STOCKED_BOX_X, 0, STOCKED_BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",count:"
-                        + RECORDED_COUNT + ",Slot:0b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"" + MATERIAL_ID + "\",Count:"
+                        + RECORDED_COUNT + "b,Slot:0b}]}");
         // This is intentionally after the stocked observation: the final live box is empty even
         // though its registered index says it previously held the material.
         arena.setBlock(EMPTY_BOX_X, 0, EMPTY_BOX_Z, "minecraft:shulker_box[facing=up]");

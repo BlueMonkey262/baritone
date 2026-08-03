@@ -68,7 +68,7 @@ public final class RestockTwoMaterialsScenario extends TestScenario {
         arena.setBlock(BUILD_X + 2, 0, 0, "minecraft:stone");
         // Keep this 26.1.2 item-NBT form in lockstep with RestockFromBoxScenario.
         arena.setBlock(BOX_X, 0, BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",count:16,Slot:0b},{id:\"minecraft:orange_concrete\",count:16,Slot:1b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",Count:16b,Slot:0b},{id:\"minecraft:orange_concrete\",Count:16b,Slot:1b}]}");
         arena.teleport(0, 0, 0);
     }
 
