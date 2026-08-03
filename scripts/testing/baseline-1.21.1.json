@@ -2,7 +2,7 @@
   "instances": 3,
   "scenarios": {
     "build-directional": {
-      "maxTicks": 82,
+      "maxTicks": 81,
       "medianTicks": 81,
       "minTicks": 80,
       "runs": 3,
@@ -14,7 +14,7 @@
     "build-observers": {
       "maxTicks": 102,
       "medianTicks": 102,
-      "minTicks": 102,
+      "minTicks": 101,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -22,9 +22,9 @@
       ]
     },
     "build-schematic": {
-      "maxTicks": 352,
-      "medianTicks": 349,
-      "minTicks": 339,
+      "maxTicks": 354,
+      "medianTicks": 353,
+      "minTicks": 353,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -32,8 +32,8 @@
       ]
     },
     "hoppers-facing": {
-      "maxTicks": 94,
-      "medianTicks": 94,
+      "maxTicks": 95,
+      "medianTicks": 95,
       "minTicks": 94,
       "runs": 3,
       "status": "PASS",
@@ -44,7 +44,7 @@
     "logs-axes": {
       "maxTicks": 55,
       "medianTicks": 54,
-      "minTicks": 52,
+      "minTicks": 54,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -52,20 +52,19 @@
       ]
     },
     "pathing-course": {
-      "maxTicks": 249,
+      "maxTicks": 248,
       "medianTicks": 247,
-      "minTicks": 0,
+      "minTicks": 246,
       "runs": 3,
-      "status": "STAGING_FAILED",
+      "status": "PASS",
       "statuses": [
-        "PASS",
-        "STAGING_FAILED"
+        "PASS"
       ]
     },
     "restock-from-box": {
-      "maxTicks": 452,
-      "medianTicks": 437,
-      "minTicks": 435,
+      "maxTicks": 454,
+      "medianTicks": 451,
+      "minTicks": 447,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -83,7 +82,7 @@
       ]
     },
     "water-detour": {
-      "maxTicks": 130,
+      "maxTicks": 129,
       "medianTicks": 129,
       "minTicks": 129,
       "runs": 3,
@@ -113,5 +112,5 @@
       ]
     }
   },
-  "wallClockSeconds": 207
+  "wallClockSeconds": 192
 }
