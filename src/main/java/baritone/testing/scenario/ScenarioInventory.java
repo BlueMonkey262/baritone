@@ -152,4 +152,28 @@ final class ScenarioInventory {
             return count;
         });
     }
+
+    static int countContainerSlots(TestArena arena, int x, int y, int z, Item item) {
+        return countOnServer(arena, x, y, z, container -> {
+            int count = 0;
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                if (container.getItem(slot).is(item)) {
+                    count++;
+                }
+            }
+            return count;
+        });
+    }
+
+    static int countNonEmptyContainerSlots(TestArena arena, int x, int y, int z) {
+        return countOnServer(arena, x, y, z, container -> {
+            int count = 0;
+            for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                if (!container.getItem(slot).isEmpty()) {
+                    count++;
+                }
+            }
+            return count;
+        });
+    }
 }
