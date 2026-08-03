@@ -34,16 +34,12 @@ import java.util.*;
 public class PathingControlManager implements IPathingControlManager {
 
     private final Baritone baritone;
-    private final HashSet<IBaritoneProcess> processes; // unGh
-    private final List<IBaritoneProcess> active;
-    private IBaritoneProcess inControlLastTick;
-    private IBaritoneProcess inControlThisTick;
+    private final ProcessScheduler scheduler;
     private PathingCommand command;
 
     public PathingControlManager(Baritone baritone) {
         this.baritone = baritone;
-        this.processes = new HashSet<>();
-        this.active = new ArrayList<>();
+        this.scheduler = new ProcessScheduler();
         baritone.getGameEventHandler().registerEventListener(new AbstractGameEventListener() { // needs to be after all behavior ticks
             @Override
             public void onTick(TickEvent event) {
@@ -56,26 +52,17 @@ public class PathingControlManager implements IPathingControlManager {
 
     @Override
     public void registerProcess(IBaritoneProcess process) {
-        process.onLostControl(); // make sure it's reset
-        processes.add(process);
+        scheduler.registerProcess(process);
     }
 
     public void cancelEverything() { // called by PathingBehavior on TickEvent Type OUT
-        inControlLastTick = null;
-        inControlThisTick = null;
         command = null;
-        active.clear();
-        for (IBaritoneProcess proc : processes) {
-            proc.onLostControl();
-            if (proc.isActive() && !proc.isTemporary()) { // it's okay only for a temporary thing (like combat pause) to maintain control even if you say to cancel
-                throw new IllegalStateException(proc.displayName() + " stayed active after being cancelled");
-            }
-        }
+        scheduler.cancelEverything();
     }
 
     @Override
     public Optional<IBaritoneProcess> mostRecentInControl() {
-        return Optional.ofNullable(inControlThisTick);
+        return Optional.ofNullable(scheduler.inControlThisTick());
     }
 
     @Override
@@ -84,8 +71,7 @@ public class PathingControlManager implements IPathingControlManager {
     }
 
     public void preTick() {
-        inControlLastTick = inControlThisTick;
-        inControlThisTick = null;
+        scheduler.beginTick();
         PathingBehavior p = baritone.getPathingBehavior();
         command = executeProcesses();
         if (command == null) {
@@ -93,6 +79,8 @@ public class PathingControlManager implements IPathingControlManager {
             p.secretInternalSetGoal(null);
             return;
         }
+        IBaritoneProcess inControlThisTick = scheduler.inControlThisTick();
+        IBaritoneProcess inControlLastTick = scheduler.inControlLastTick();
         if (!Objects.equals(inControlThisTick, inControlLastTick) && command.commandType != PathingCommandType.REQUEST_PAUSE && inControlLastTick != null && !inControlLastTick.isTemporary()) {
             // if control has changed from a real process to another real process, and the new process wants to do something
             p.cancelSegmentIfSafe();
@@ -179,37 +167,9 @@ public class PathingControlManager implements IPathingControlManager {
 
 
     public PathingCommand executeProcesses() {
-        for (IBaritoneProcess process : processes) {
-            if (process.isActive()) {
-                if (!active.contains(process)) {
-                    // put a newly active process at the very front of the queue
-                    active.add(0, process);
-                }
-            } else {
-                active.remove(process);
-            }
-        }
-        // ties are broken by which was added to the beginning of the list first
-        active.sort(Comparator.comparingDouble(IBaritoneProcess::priority).reversed());
-
-        Iterator<IBaritoneProcess> iterator = active.iterator();
-        while (iterator.hasNext()) {
-            IBaritoneProcess proc = iterator.next();
-
-            PathingCommand exec = proc.onTick(Objects.equals(proc, inControlLastTick) && baritone.getPathingBehavior().calcFailedLastTick(), baritone.getPathingBehavior().isSafeToCancel());
-            if (exec == null) {
-                if (proc.isActive()) {
-                    throw new IllegalStateException(proc.displayName() + " actively returned null PathingCommand");
-                }
-                // no need to call onLostControl; they are reporting inactive.
-            } else if (exec.commandType != PathingCommandType.DEFER) {
-                inControlThisTick = proc;
-                if (!proc.isTemporary()) {
-                    iterator.forEachRemaining(IBaritoneProcess::onLostControl);
-                }
-                return exec;
-            }
-        }
-        return null;
+        return scheduler.executeProcesses(
+                baritone.getPathingBehavior()::calcFailedLastTick,
+                baritone.getPathingBehavior()::isSafeToCancel
+        );
     }
 }

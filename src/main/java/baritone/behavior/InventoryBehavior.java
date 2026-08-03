@@ -24,13 +24,13 @@ import baritone.utils.ToolSet;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.Direction;
 import net.minecraft.core.NonNullList;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.DiggerItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.PickaxeItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.block.Block;
@@ -38,7 +38,9 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+
 import java.util.ArrayList;
+import java.util.List;
 import java.util.OptionalInt;
 import java.util.Random;
 import java.util.function.Predicate;
@@ -68,7 +70,7 @@ public final class InventoryBehavior extends Behavior implements Helper {
         if (firstValidThrowaway() >= 9) { // aka there are none on the hotbar, but there are some in main inventory
             requestSwapWithHotBar(firstValidThrowaway(), 8);
         }
-        int pick = bestToolAgainst(Blocks.STONE, PickaxeItem.class);
+        int pick = bestToolAgainst(Blocks.STONE);
         if (pick >= 9) {
             requestSwapWithHotBar(pick, 0);
         }
@@ -135,7 +137,7 @@ public final class InventoryBehavior extends Behavior implements Helper {
         return -1;
     }
 
-    private int bestToolAgainst(Block against, Class<? extends DiggerItem> cla$$) {
+    private int bestToolAgainst(Block against) {
         NonNullList<ItemStack> invy = ctx.player().getInventory().items;
         int bestInd = -1;
         double bestSpeed = -1;
@@ -144,10 +146,10 @@ public final class InventoryBehavior extends Behavior implements Helper {
             if (stack.isEmpty()) {
                 continue;
             }
-            if (Baritone.settings().itemSaver.value && (stack.getDamageValue() + Baritone.settings().itemSaverThreshold.value) >= stack.getMaxDamage() && stack.getMaxDamage() > 1) {
+            if (ToolSet.isSpent(stack)) {
                 continue;
             }
-            if (cla$$.isInstance(stack.getItem())) {
+            if (stack.getItem().components().has(DataComponents.TOOL)) {
                 double speed = ToolSet.calculateSpeedVsBlock(stack, against.defaultBlockState()); // takes into account enchants
                 if (speed > bestSpeed) {
                     bestSpeed = speed;
@@ -167,7 +169,35 @@ public final class InventoryBehavior extends Behavior implements Helper {
         return false;
     }
 
+    /**
+     * When set, throwaway selection is limited to these blocks. Used by backfill so it patches
+     * holes with rubble rather than spending build materials. Set and cleared within a single
+     * tick by the caller; null means no restriction.
+     */
+    private List<Block> throwawayRestriction;
+
+    /**
+     * Restricts which blocks {@link #selectThrowawayForLocation} may choose, until cleared.
+     *
+     * @param blocks The only blocks that may be selected, or {@code null} for no restriction
+     */
+    public void setThrowawayRestriction(List<Block> blocks) {
+        this.throwawayRestriction = blocks;
+    }
+
     public boolean selectThrowawayForLocation(boolean select, int x, int y, int z) {
+        List<Block> restriction = this.throwawayRestriction;
+        if (restriction != null) {
+            // deliberately ignores the schematic-aware branches below: a restricted caller wants
+            // one of these blocks or nothing at all
+            for (Block block : restriction) {
+                if (throwaway(select, stack -> stack.getItem() instanceof BlockItem
+                        && ((BlockItem) stack.getItem()).getBlock() == block)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         BlockState maybe = baritone.getBuilderProcess().placeAt(x, y, z, baritone.bsi.get0(x, y, z));
         if (maybe != null && throwaway(select, stack -> stack.getItem() instanceof BlockItem && maybe.equals(((BlockItem) stack.getItem()).getBlock().getStateForPlacement(new BlockPlaceContext(new UseOnContext(ctx.world(), ctx.player(), InteractionHand.MAIN_HAND, stack, new BlockHitResult(new Vec3(ctx.player().position().x, ctx.player().position().y, ctx.player().position().z), Direction.UP, ctx.playerFeet(), false)) {}))))) {
             return true; // gotem
@@ -204,7 +234,7 @@ public final class InventoryBehavior extends Behavior implements Helper {
                 return true;
             }
         }
-        if (desired.test(p.getInventory().offhand.get(0))) {
+        if (desired.test(p.getItemBySlot(EquipmentSlot.OFFHAND))) {
             // main hand takes precedence over off hand
             // that means that if we have block A selected in main hand and block B in off hand, right clicking places block B
             // we've already checked above ^ and the main hand can't possible have an acceptablethrowawayitem
@@ -212,7 +242,7 @@ public final class InventoryBehavior extends Behavior implements Helper {
             // so not a shovel, not a hoe, not a block, etc
             for (int i = 0; i < 9; i++) {
                 ItemStack item = inv.get(i);
-                if (item.isEmpty() || item.getItem() instanceof PickaxeItem) {
+                if (item.isEmpty() || item.getItem().components().has(DataComponents.TOOL)) {
                     if (select) {
                         p.getInventory().selected = i;
                     }
