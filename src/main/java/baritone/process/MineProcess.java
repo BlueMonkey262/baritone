@@ -21,6 +21,8 @@ import baritone.Baritone;
 import baritone.api.BaritoneAPI;
 import baritone.api.pathing.goals.*;
 import baritone.api.process.IMineProcess;
+import baritone.api.process.IRestockProcess;
+import baritone.api.process.IShelterProcess;
 import baritone.api.process.PathingCommand;
 import baritone.api.process.PathingCommandType;
 import baritone.api.utils.*;
@@ -29,11 +31,13 @@ import baritone.cache.CachedChunk;
 import baritone.pathing.movement.CalculationContext;
 import baritone.pathing.movement.MovementHelper;
 import baritone.utils.BaritoneProcessHelper;
+import baritone.utils.BlockBreakHelper;
 import baritone.utils.BlockStateInterface;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.AirBlock;
 import net.minecraft.world.level.block.Block;
@@ -52,6 +56,14 @@ import static baritone.api.pathing.movement.ActionCosts.COST_INF;
  * @author leijurv
  */
 public final class MineProcess extends BaritoneProcessHelper implements IMineProcess {
+
+    /**
+     * How long mining must stay blocked on a nearly-broken tool before we act on it.
+     * <p>
+     * A swap takes a tick or two to reach the server, so the suppression counter ticks up briefly
+     * during ordinary tool changes. Waiting a second first keeps that from reading as a shortage.
+     */
+    private static final int SPENT_TOOL_GRACE_TICKS = 20;
 
     private BlockOptionalMetaLookup filter;
     private List<BlockPos> knownOreLocations;
@@ -82,6 +94,45 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
                 cancel();
                 return null;
             }
+        }
+        // Getting away from something that's killing us comes before anything else, including
+        // running out of room. Cheap to ask: it declines immediately unless we're actually being hit.
+        IShelterProcess shelter = baritone.getShelterProcess();
+        if (shelter != null && shelter.requestShelter(this::inventoryWants)) {
+            // the shelter process outranks us and takes control next tick
+            return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+        }
+        // Once there is no room for another drop, carry on only after making space in a registered
+        // box. The keep rule recognises the drops from the requested blocks as well as the blocks
+        // themselves, so the thing this mine was started for can never be mistaken for rubble.
+        if (inventoryIsFull()) {
+            IRestockProcess restock = baritone.getRestockProcess();
+            if (restock != null
+                    && !restock.isDepositImpossible()
+                    && restock.requestDeposit(this::inventoryWants)) {
+                // the restock process outranks us and takes control next tick
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+            }
+        }
+        // itemSaver has stopped us swinging a tool that is about to break. Fetch a replacement if a
+        // registered box has one; otherwise stop and say so, because standing in front of a block we
+        // have decided not to hit is indistinguishable from working and can last all night.
+        BlockBreakHelper breakHelper = baritone.getInputOverrideHandler().getBlockBreakHelper();
+        if (breakHelper.getSpentToolTicks() > SPENT_TOOL_GRACE_TICKS && breakHelper.getSpentTool() != null) {
+            // the withheld tool, not whatever is held -- see BlockBreakHelper#getSpentTool
+            ItemStack spent = breakHelper.getSpentTool();
+            String name = spent.getItem().getName(spent).getString();
+            IRestockProcess restock = baritone.getRestockProcess();
+            if (restock != null && restock.requestTool(spent.getItem(), this::inventoryWants)) {
+                // the restock process outranks us and takes control next tick
+                return new PathingCommand(null, PathingCommandType.REQUEST_PAUSE);
+            }
+            logDirect("Stopping: " + name + " is nearly broken and no registered box has a replacement");
+            if (Baritone.settings().notificationOnMineFail.value) {
+                logNotification(name + " is nearly broken and no registered box has a replacement", true);
+            }
+            cancel();
+            return null;
         }
         if (calcFailed) {
             if (!knownOreLocations.isEmpty() && Baritone.settings().blacklistClosestOnFailure.value) {
@@ -171,6 +222,17 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
     @Override
     public String displayName0() {
         return "Mine " + filter;
+    }
+
+    /**
+     * The ore locations are exactly the blocks this process asked to be broken; everything else it
+     * breaks is scenery in the way. The list is re-pruned at the start of every tick, and a block
+     * still standing at that point is still in it, so it is accurate by the time the break lands
+     * later in the same tick.
+     */
+    @Override
+    public boolean wantsDropsFrom(BlockPos pos) {
+        return knownOreLocations != null && knownOreLocations.contains(pos);
     }
 
     private PathingCommand updateGoal() {
@@ -508,6 +570,14 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         if (this.filterFilter() == null) {
             this.filter = null;
         }
+        if (this.filter != null) {
+            // A new mine gets a clean slate: boxes which were full or useless to the previous job
+            // may be perfectly usable now that a different inventory stack is worth keeping.
+            IRestockProcess restock = baritone.getRestockProcess();
+            if (restock != null) {
+                restock.clearUnobtainable();
+            }
+        }
         this.desiredQuantity = quantity;
         this.knownOreLocations = new ArrayList<>();
         this.blacklist = new ArrayList<>();
@@ -517,6 +587,36 @@ public final class MineProcess extends BaritoneProcessHelper implements IMinePro
         if (filter != null) {
             rescan(new ArrayList<>(), new CalculationContext(baritone));
         }
+    }
+
+    /**
+     * Whether another mined drop would have nowhere to go. Counts the whole inventory rather than
+     * the hotbar, since picked-up items use every ordinary slot before they fall on the floor.
+     */
+    private boolean inventoryIsFull() {
+        if (!Baritone.settings().shulkerDump.value || ctx.player() == null) {
+            return false;
+        }
+        int free = 0;
+        for (ItemStack stack : ctx.player().getInventory().items) {
+            if (stack.isEmpty()) {
+                free++;
+            }
+        }
+        return free < Baritone.settings().shulkerDumpWhenFreeSlotsBelow.value;
+    }
+
+    /**
+     * Whether a stack is the requested block or one of its ordinary drops. The latter is what
+     * {@link BlockOptionalMetaLookup#has(ItemStack)} answers, while checking block items as well
+     * covers Silk Touch without teaching the unloading process anything about mining.
+     */
+    private boolean inventoryWants(ItemStack stack) {
+        if (this.filter.has(stack)) {
+            return true;
+        }
+        return stack.getItem() instanceof BlockItem
+                && this.filter.has(((BlockItem) stack.getItem()).getBlock());
     }
 
     private BlockOptionalMetaLookup filterFilter() {

@@ -30,6 +30,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -76,14 +77,6 @@ public class ToolSet {
         return breakStrengthCache.computeIfAbsent(state.getBlock(), backendCalculation);
     }
 
-    /**
-     * Evaluate the material cost of a possible tool. The priority matches the
-     * harvest level order; there is a chance for multiple at the same with modded tools
-     * but in that case we don't really care.
-     *
-     * @param itemStack a possibly empty ItemStack
-     * @return values from 0 up
-     */
     private int getMaterialCost(ItemStack itemStack) {
         if (itemStack.getItem() instanceof TieredItem) {
             TieredItem tool = (TieredItem) itemStack.getItem();
@@ -91,6 +84,39 @@ public class ToolSet {
         } else {
             return -1;
         }
+    }
+
+    /**
+     * Whether {@code itemSaver} considers this stack too damaged to keep using.
+     * <p>
+     * Note that this is about the item, not about whether anything else is available: a spent tool
+     * is still returned by {@link #getBestSlot} when every hotbar slot holds one, because that
+     * method's contract is to name a slot. Refusing to actually swing it is
+     * {@link BlockBreakHelper}'s job, which is the only place every block break passes through.
+     *
+     * @param stack the stack to test, possibly empty
+     * @return {@code true} if the stack is damageable and within the configured threshold of breaking
+     */
+    public static boolean isSpent(ItemStack stack) {
+        return Baritone.settings().itemSaver.value
+                && isSpent(stack.getDamageValue(), stack.getMaxDamage(), Baritone.settings().itemSaverThreshold.value);
+    }
+
+    /**
+     * The arithmetic behind {@link #isSpent(ItemStack)}, split out so it can be tested without a
+     * Minecraft bootstrap -- constructing an {@link ItemStack} needs bound item components.
+     * <p>
+     * {@code maxDamage > 1} is what distinguishes a damageable item from everything else: stacks
+     * that cannot take damage report a max of 0, and a hypothetical one-use item has no headroom
+     * for a threshold to protect anyway.
+     *
+     * @param damageValue how much damage the stack has already taken
+     * @param maxDamage   the stack's durability, or 0 if it is not damageable
+     * @param threshold   how much durability {@code itemSaver} wants left over
+     * @return {@code true} if the stack is damageable and within {@code threshold} of breaking
+     */
+    public static boolean isSpent(int damageValue, int maxDamage, int threshold) {
+        return maxDamage > 1 && damageValue + threshold >= maxDamage;
     }
 
     public boolean hasSilkTouch(ItemStack stack) {
@@ -110,6 +136,54 @@ public class ToolSet {
     }
 
     public int getBestSlot(Block b, boolean preferSilkTouch, boolean pathingCalculation) {
+        return getBestSlot(b, preferSilkTouch, pathingCalculation, true);
+    }
+
+    /**
+     * Whether {@code itemSaver} is currently costing us speed on this block.
+     * <p>
+     * True when setting the rule aside would name a strictly faster slot, which is exactly the
+     * situation where honouring it means mining with a worse tool or with a bare hand. That is the
+     * condition worth escalating on -- fetching a replacement, or stopping and saying so -- because
+     * it covers the quiet case as well as the obvious one: with a spare empty hotbar slot the bot
+     * does not sit still when its last pickaxe is spent, it chews through stone barehanded at a
+     * hundredth of the speed and looks like it is working.
+     *
+     * @param b the block we are about to break
+     * @return {@code true} if a spent tool is the only good option for this block
+     */
+    public boolean isBlockedByItemSaver(Block b) {
+        return spentToolFor(b) != null;
+    }
+
+    /**
+     * The nearly-broken tool {@code itemSaver} is keeping us from using on this block.
+     * <p>
+     * This is the item a replacement should be fetched of, and it is deliberately <i>not</i>
+     * "whatever is in hand". When the rule skips a spent pickaxe, selection falls through to
+     * whatever else scores best — with {@code useSwordToMine} on, that is typically a sword, which
+     * costs two durability per block and is usually worth more than the pickaxe being protected.
+     * Asking what is held would then request a spare sword, which is not the problem.
+     *
+     * @param b the block we are about to break
+     * @return the spent tool being withheld, or {@code null} if the rule is costing us nothing here
+     */
+    public ItemStack spentToolFor(Block b) {
+        if (!Baritone.settings().itemSaver.value) {
+            return null;
+        }
+        ItemStack saved = player.getInventory().getItem(getBestSlot(b, false, false, true));
+        ItemStack ignoring = player.getInventory().getItem(getBestSlot(b, false, false, false));
+        BlockState state = b.defaultBlockState();
+        if (calculateSpeedVsBlock(ignoring, state) <= calculateSpeedVsBlock(saved, state)) {
+            return null;
+        }
+        // The faster option was withheld, so it is the spent one by construction -- that is the only
+        // reason honouring the rule can pick something slower.
+        return isSpent(ignoring) ? ignoring : null;
+    }
+
+    private int getBestSlot(Block b, boolean preferSilkTouch, boolean pathingCalculation, boolean honorItemSaver) {
 
         /*
         If we actually want know what efficiency our held item has instead of the best one
@@ -130,7 +204,7 @@ public class ToolSet {
                 continue;
             }
 
-            if (Baritone.settings().itemSaver.value && (itemStack.getDamageValue() + Baritone.settings().itemSaverThreshold.value) >= itemStack.getMaxDamage() && itemStack.getMaxDamage() > 1) {
+            if (honorItemSaver && isSpent(itemStack)) {
                 continue;
             }
             double speed = calculateSpeedVsBlock(itemStack, blockState);

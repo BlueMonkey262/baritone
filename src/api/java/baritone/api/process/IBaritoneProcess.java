@@ -19,6 +19,7 @@ package baritone.api.process;
 
 import baritone.api.behavior.IPathingBehavior;
 import baritone.api.event.events.PathEvent;
+import net.minecraft.core.BlockPos;
 
 /**
  * A process that can control the PathingBehavior.
@@ -94,6 +95,23 @@ public interface IBaritoneProcess {
      */
     default double priority() {
         return DEFAULT_PRIORITY;
+    }
+
+    /**
+     * Whether this process set out to break the block at the given position, as opposed to it
+     * merely being in the way of getting somewhere.
+     * <p>
+     * Baritone breaks a great deal of scenery in the course of pathing, and nothing downstream can
+     * tell the difference by looking at the break itself. Only the process that chose the
+     * destination knows which blocks it actually wanted, so it is asked. Answering {@code true} for
+     * blocks broken in passing is what turns collecting drops into a self-feeding loop, since
+     * fetching each one clears yet more blocks on the way.
+     *
+     * @param pos The position of a block this process's pathing has just broken
+     * @return Whether the drops from it are worth collecting
+     */
+    default boolean wantsDropsFrom(BlockPos pos) {
+        return false;
     }
 
     /**

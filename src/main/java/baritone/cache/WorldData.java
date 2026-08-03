@@ -19,6 +19,7 @@ package baritone.cache;
 
 import baritone.Baritone;
 import baritone.api.cache.ICachedWorld;
+import baritone.api.cache.IRestockBoxCollection;
 import baritone.api.cache.IWaypointCollection;
 import baritone.api.cache.IWorldData;
 import net.minecraft.world.level.dimension.DimensionType;
@@ -34,6 +35,7 @@ public class WorldData implements IWorldData {
 
     public final CachedWorld cache;
     private final WaypointCollection waypoints;
+    private final RestockBoxCollection restockBoxes;
     //public final MapData map;
     public final Path directory;
     public final DimensionType dimension;
@@ -42,6 +44,7 @@ public class WorldData implements IWorldData {
         this.directory = directory;
         this.cache = new CachedWorld(directory.resolve("cache"), dimension);
         this.waypoints = new WaypointCollection(directory.resolve("waypoints"));
+        this.restockBoxes = new RestockBoxCollection(directory.resolve("restock"));
         this.dimension = dimension;
     }
 
@@ -60,5 +63,10 @@ public class WorldData implements IWorldData {
     @Override
     public IWaypointCollection getWaypoints() {
         return this.waypoints;
+    }
+
+    @Override
+    public IRestockBoxCollection getRestockBoxes() {
+        return this.restockBoxes;
     }
 }

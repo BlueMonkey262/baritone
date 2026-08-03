@@ -65,6 +65,28 @@ public interface IBaritone {
     IBuilderProcess getBuilderProcess();
 
     /**
+     * Implementations from before restock boxes existed have no process to return, so the default
+     * fails explicitly instead of forcing them to invent a process with unsafe behaviour.
+     *
+     * @return The {@link IRestockProcess} instance
+     * @see IRestockProcess
+     */
+    default IRestockProcess getRestockProcess() {
+        throw new UnsupportedOperationException("This Baritone implementation has no restock process");
+    }
+
+    /**
+     * Implementations from before sheltering existed have no process to return, so the default fails
+     * explicitly instead of forcing them to invent a process with unsafe behaviour.
+     *
+     * @return The {@link IShelterProcess} instance
+     * @see IShelterProcess
+     */
+    default IShelterProcess getShelterProcess() {
+        throw new UnsupportedOperationException("This Baritone implementation has no shelter process");
+    }
+
+    /**
      * @return The {@link IExploreProcess} instance
      * @see IExploreProcess
      */
