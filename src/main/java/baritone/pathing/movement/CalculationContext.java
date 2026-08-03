@@ -132,7 +132,14 @@ public class CalculationContext {
         this.minFallHeight = 3; // Minimum fall height used by MovementFall
         this.maxFallHeightNoWater = Baritone.settings().maxFallHeightNoWater.value;
         this.maxFallHeightBucket = Baritone.settings().maxFallHeightBucket.value;
-        float waterSpeedMultiplier = 1.0f;
+        // Zero, not one: this is how far towards dry-land speed the player's enchantments take
+        // them, and vanilla's water_movement_efficiency attribute is a RangedAttribute with default
+        // 0 and maximum 1, raised by depth strider. Starting at 1 meant that a player wearing no
+        // enchantments at all -- the overwhelmingly common case -- was modelled as moving through
+        // water at full walking speed, so waterWalkSpeed collapsed to WALK_ONE_BLOCK_COST and water
+        // cost exactly as much as dry land. That is why Baritone would swim across a pool rather
+        // than walk around it: as far as the search was concerned, the two were the same price.
+        float waterSpeedMultiplier = 0.0f;
         OUTER: for (EquipmentSlot slot : EquipmentSlot.values()) {
             ItemEnchantments itemEnchantments = baritone.getPlayerContext()
                 .player()
@@ -149,7 +156,7 @@ public class CalculationContext {
                 }
             }
         }
-        this.waterWalkSpeed = ActionCosts.WALK_ONE_IN_WATER_COST * (1 - waterSpeedMultiplier) + ActionCosts.WALK_ONE_BLOCK_COST * waterSpeedMultiplier;
+        this.waterWalkSpeed = ActionCosts.waterWalkCost(waterSpeedMultiplier, Baritone.settings().waterCostMultiplier.value);
         this.breakBlockAdditionalCost = Baritone.settings().blockBreakAdditionalPenalty.value;
         this.backtrackCostFavoringCoefficient = Baritone.settings().backtrackCostFavoringCoefficient.value;
         this.jumpPenalty = Baritone.settings().jumpPenalty.value;

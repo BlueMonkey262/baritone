@@ -39,6 +39,11 @@ pluginManagement {
     }
 }
 
+// Provisions a matching JDK when the toolchain build.gradle asks for is not installed.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
 rootProject.name = 'baritone'
 
 for (platform in available_loaders.split(",")) {
