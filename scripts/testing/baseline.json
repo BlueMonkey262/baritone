@@ -4,7 +4,7 @@
     "build-directional": {
       "maxTicks": 83,
       "medianTicks": 83,
-      "minTicks": 82,
+      "minTicks": 83,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -14,7 +14,7 @@
     "build-observers": {
       "maxTicks": 104,
       "medianTicks": 104,
-      "minTicks": 103,
+      "minTicks": 104,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -22,9 +22,9 @@
       ]
     },
     "build-schematic": {
-      "maxTicks": 385,
-      "medianTicks": 359,
-      "minTicks": 354,
+      "maxTicks": 372,
+      "medianTicks": 356,
+      "minTicks": 350,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -32,8 +32,8 @@
       ]
     },
     "hoppers-facing": {
-      "maxTicks": 98,
-      "medianTicks": 98,
+      "maxTicks": 97,
+      "medianTicks": 96,
       "minTicks": 96,
       "runs": 3,
       "status": "PASS",
@@ -62,9 +62,9 @@
       ]
     },
     "restock-from-box": {
-      "maxTicks": 448,
-      "medianTicks": 448,
-      "minTicks": 447,
+      "maxTicks": 459,
+      "medianTicks": 456,
+      "minTicks": 441,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -112,5 +112,5 @@
       ]
     }
   },
-  "wallClockSeconds": 208
+  "wallClockSeconds": 193
 }
