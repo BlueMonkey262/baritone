@@ -1,15 +1,15 @@
-# Continuo
+# Tenor
 
-**Continuo keeps a long Minecraft job running when it would otherwise stop.**
+**Tenor keeps a long Minecraft job running when it would otherwise stop.**
 
 Baritone is a very good pathfinding bot, but leave it building something large and you come back to
-a bot standing still: out of materials, inventory full, or being hit by a zombie. Continuo adds the
+a bot standing still: out of materials, inventory full, or being hit by a zombie. Tenor adds the
 parts that keep it working — it fetches more materials from shulker boxes you've registered,
 takes a trip to unload when it fills up, and retreats to shelter when something attacks it. It also
 fixes a number of upstream defects that turn a long build into a babysitting exercise.
 
-> **Continuo is an unofficial fork of [Baritone](https://github.com/cabaletta/baritone).** It is not
-> affiliated with, endorsed by, or supported by that project. **Please do not report Continuo bugs
+> **Tenor is an unofficial fork of [Baritone](https://github.com/cabaletta/baritone).** It is not
+> affiliated with, endorsed by, or supported by that project. **Please do not report Tenor bugs
 > to cabaletta/baritone** — open an issue here instead.
 
 <p align="center">
@@ -44,7 +44,7 @@ See **[FORK-NOTES.md](FORK-NOTES.md)** for the full list and the reasoning behin
    `#build <schematic>`.
 
 `allowInventory` matters: restocked items land in the main inventory, and the builder can only place
-from the hotbar. Continuo warns once if it notices this.
+from the hotbar. Tenor warns once if it notices this.
 
 - [Chat commands](USAGE.md)
 - [Pathing features](FEATURES.md)
@@ -54,8 +54,8 @@ from the hotbar. Continuo warns once if it notices this.
 ## Using it as a library
 
 The API is unchanged from Baritone and lives in `baritone.api`, deliberately unobfuscated in the
-`api` jars. Continuo is a drop-in replacement: mods that compile against Baritone's API work against
-Continuo without modification.
+`api` jars. Tenor is a drop-in replacement: mods that compile against Baritone's API work against
+Tenor without modification.
 
 ```java
 BaritoneAPI.getSettings().allowSprint.value = true;
@@ -80,7 +80,7 @@ because they only mean anything with a world and several thousand ticks of susta
 
 ## A word on servers
 
-Continuo interacts with the world through real client→server packets — forced input, genuine
+Tenor interacts with the world through real client→server packets — forced input, genuine
 right-clicks gated on reach, real container click packets. Nothing is written into your inventory
 behind the server's back, and the server's own range and validity checks always apply.
 
@@ -89,12 +89,12 @@ play on; that is on you, not on this project.
 
 ## Licence and credit
 
-Continuo is licensed under the **LGPL-3.0**, the same licence as Baritone. See [LICENSE](LICENSE)
+Tenor is licensed under the **LGPL-3.0**, the same licence as Baritone. See [LICENSE](LICENSE)
 and [NOTICE](NOTICE).
 
 The overwhelming majority of this codebase is the work of
 [leijurv](https://github.com/leijurv/), [Brady](https://github.com/bhlowe), and the Baritone
-contributors. Continuo is a set of changes on top of years of their work, and the pathfinder — the
+contributors. Tenor is a set of changes on top of years of their work, and the pathfinder — the
 hard and clever part — is theirs.
 
-The name is from *basso continuo*, the part that plays continuously underneath everything else.
+The name is from *tenor*, the voice range next to baritone.

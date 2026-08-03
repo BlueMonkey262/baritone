@@ -119,7 +119,7 @@ def clone(base, target, world, jar):
         cfg.write_text(text)
 
     mods = dest / "minecraft" / "mods"
-    for pattern in ("baritone-*.jar", "continuo-*.jar"):
+    for pattern in ("baritone-*.jar", "continuo-*.jar", "tenor-*.jar"):
         for old in mods.glob(pattern):
             old.unlink()
     shutil.copy2(jar, mods / Path(jar).name)
@@ -207,7 +207,7 @@ def main():
         help="Minecraft version label recorded in the merged report and used to pick the "
              "baseline file. Defaults to the trailing version in --instance, if it has one.",
     )
-    parser.add_argument("--jar", help="path to the Continuo jar (default: newest unoptimized fabric jar in dist/)")
+    parser.add_argument("--jar", help="path to the Tenor jar (default: newest unoptimized fabric jar in dist/)")
     parser.add_argument("--timeout", type=int, default=3600, help="seconds to wait for a report")
     parser.add_argument("--scenarios", help="file with one scenario name per line")
     parser.add_argument("--fuzz", help="inclusive seed range, e.g. 1-240")
@@ -226,7 +226,7 @@ def main():
     jar = args.jar
     if not jar:
         candidates = sorted(
-            Path("dist").glob("continuo-unoptimized-fabric-*.jar"),
+            Path("dist").glob("tenor-unoptimized-fabric-*.jar"),
             key=lambda p: p.stat().st_mtime,
         )
         if not candidates:

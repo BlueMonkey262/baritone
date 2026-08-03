@@ -3,7 +3,7 @@
   "id": "baritone",
   "version": "${version}",
 
-  "name": "Continuo",
+  "name": "Tenor",
   "description": "Keeps long Minecraft jobs running through shortages, full inventories, and attacks.",
   "authors": [
     "leijurv", "Brady"
