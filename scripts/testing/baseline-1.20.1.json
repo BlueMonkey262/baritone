@@ -2,9 +2,9 @@
   "instances": 3,
   "scenarios": {
     "build-directional": {
-      "maxTicks": 80,
-      "medianTicks": 80,
-      "minTicks": 80,
+      "maxTicks": 82,
+      "medianTicks": 82,
+      "minTicks": 82,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -12,9 +12,9 @@
       ]
     },
     "build-observers": {
-      "maxTicks": 102,
-      "medianTicks": 102,
-      "minTicks": 102,
+      "maxTicks": 109,
+      "medianTicks": 107,
+      "minTicks": 107,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -22,8 +22,8 @@
       ]
     },
     "build-schematic": {
-      "maxTicks": 355,
-      "medianTicks": 355,
+      "maxTicks": 366,
+      "medianTicks": 352,
       "minTicks": 350,
       "runs": 3,
       "status": "PASS",
@@ -32,9 +32,9 @@
       ]
     },
     "hoppers-facing": {
-      "maxTicks": 95,
-      "medianTicks": 95,
-      "minTicks": 94,
+      "maxTicks": 98,
+      "medianTicks": 96,
+      "minTicks": 96,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -42,9 +42,9 @@
       ]
     },
     "logs-axes": {
-      "maxTicks": 57,
-      "medianTicks": 54,
-      "minTicks": 54,
+      "maxTicks": 52,
+      "medianTicks": 52,
+      "minTicks": 52,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -52,29 +52,30 @@
       ]
     },
     "pathing-course": {
-      "maxTicks": 247,
-      "medianTicks": 247,
-      "minTicks": 246,
+      "maxTicks": 261,
+      "medianTicks": 254,
+      "minTicks": 0,
       "runs": 3,
-      "status": "PASS",
+      "status": "STAGING_FAILED",
       "statuses": [
-        "PASS"
+        "PASS",
+        "STAGING_FAILED"
       ]
     },
     "restock-from-box": {
-      "maxTicks": 477,
-      "medianTicks": 469,
-      "minTicks": 442,
+      "maxTicks": 321,
+      "medianTicks": 302,
+      "minTicks": 294,
       "runs": 3,
-      "status": "PASS",
+      "status": "FAIL",
       "statuses": [
-        "PASS"
+        "FAIL"
       ]
     },
     "stairs-halves": {
-      "maxTicks": 452,
-      "medianTicks": 451,
-      "minTicks": 451,
+      "maxTicks": 456,
+      "medianTicks": 455,
+      "minTicks": 454,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -82,9 +83,9 @@
       ]
     },
     "water-detour": {
-      "maxTicks": 129,
-      "medianTicks": 129,
-      "minTicks": 129,
+      "maxTicks": 130,
+      "medianTicks": 130,
+      "minTicks": 130,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -92,9 +93,9 @@
       ]
     },
     "water-detour-x30": {
-      "maxTicks": 129,
-      "medianTicks": 129,
-      "minTicks": 129,
+      "maxTicks": 130,
+      "medianTicks": 130,
+      "minTicks": 130,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -102,9 +103,9 @@
       ]
     },
     "water-detour-x8": {
-      "maxTicks": 129,
-      "medianTicks": 129,
-      "minTicks": 129,
+      "maxTicks": 130,
+      "medianTicks": 130,
+      "minTicks": 130,
       "runs": 3,
       "status": "PASS",
       "statuses": [
@@ -112,5 +113,5 @@
       ]
     }
   },
-  "wallClockSeconds": 188
+  "wallClockSeconds": 183
 }
