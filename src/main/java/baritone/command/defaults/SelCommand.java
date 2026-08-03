@@ -46,6 +46,8 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -152,6 +154,8 @@ public class SelCommand extends Command {
             if (selections.length == 0) {
                 throw new CommandInvalidStateException("No selections");
             }
+            int torchCount = 0;
+            int skippedTorches = 0;
             BetterBlockPos origin = selections[0].min();
             CompositeSchematic composite = new CompositeSchematic(0, 0, 0);
             for (ISelection selection : selections) {
@@ -194,10 +198,37 @@ public class SelCommand extends Command {
                 };
 
                 ISchematic schematic = create.apply(new FillSchematic(size.getX(), size.getY(), size.getZ(), type));
+                if (action == Action.CLEARAREA && Baritone.settings().torchGrid.value) {
+                    int spacing = Baritone.settings().torchGridSpacing.value;
+                    // the ungated grid first, purely to enumerate the candidate columns, then the
+                    // real one with the ones the world has already lit taken out
+                    TorchGridSchematic candidates =
+                            new TorchGridSchematic(schematic, Blocks.TORCH.defaultBlockState(), spacing);
+                    TorchGridSchematic torched = new TorchGridSchematic(
+                            schematic,
+                            Blocks.TORCH.defaultBlockState(),
+                            spacing,
+                            columnsAlreadyLit(candidates, min)
+                    );
+                    torchCount += torched.countTorches();
+                    skippedTorches += candidates.countTorches() - torched.countTorches();
+                    schematic = torched;
+                }
                 composite.put(schematic, min.x - origin.x, min.y - origin.y, min.z - origin.z);
             }
             baritone.getBuilderProcess().build("Fill", composite, origin);
-            logDirect("Filling now");
+            if (action == Action.CLEARAREA && Baritone.settings().torchGrid.value) {
+                logDirect(String.format(
+                        "Filling now, with %d torches every %d blocks%s",
+                        torchCount, Math.max(1, Baritone.settings().torchGridSpacing.value),
+                        skippedTorches > 0
+                                ? String.format(" (%d skipped, already lit)", skippedTorches)
+                                : ""
+                ));
+                warnAboutTorchGrid(torchCount, skippedTorches);
+            } else {
+                logDirect("Filling now");
+            }
         } else if (action == Action.COPY) {
             BetterBlockPos playerPos = ctx.viewerPos();
             BetterBlockPos pos = args.hasAny() ? args.getDatatypePost(RelativeBlockPos.INSTANCE, playerPos) : playerPos;
@@ -266,6 +297,75 @@ public class SelCommand extends Command {
                 }
             }
             logDirect(String.format("Transformed %d selections", selections.length));
+        }
+    }
+
+    /**
+     * Which grid columns already have a torch near them, and so should be left alone.
+     */
+    private Set<Long> columnsAlreadyLit(TorchGridSchematic candidates, BetterBlockPos min) {
+        int radius = Baritone.settings().torchGridAvoidExistingRadius.value;
+        if (radius <= 0) {
+            return Collections.emptySet();
+        }
+        BlockStateInterface bsi = new BlockStateInterface(ctx);
+        Set<Long> skipped = new HashSet<>();
+        int radiusSq = radius * radius;
+        for (int x = 0; x < candidates.widthX(); x++) {
+            for (int z = 0; z < candidates.lengthZ(); z++) {
+                if (!candidates.isGridColumn(x, z)) {
+                    continue;
+                }
+                if (hasTorchWithin(bsi, min.x + x, min.y, min.z + z, radius, radiusSq)) {
+                    skipped.add(TorchGridSchematic.column(x, z));
+                }
+            }
+        }
+        return skipped;
+    }
+
+    private static boolean hasTorchWithin(BlockStateInterface bsi, int wx, int wy, int wz, int radius, int radiusSq) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    if (dx * dx + dy * dy + dz * dz > radiusSq) {
+                        continue;
+                    }
+                    if (isTorch(bsi.get0(wx + dx, wy + dy, wz + dz).getBlock())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isTorch(net.minecraft.world.level.block.Block block) {
+        return block == Blocks.TORCH || block == Blocks.WALL_TORCH
+                || block == Blocks.SOUL_TORCH || block == Blocks.SOUL_WALL_TORCH;
+    }
+
+    private void warnAboutTorchGrid(int torchCount, int skippedTorches) {
+        if (torchCount == 0) {
+            logDirect(skippedTorches > 0
+                    ? "...but every grid position is already lit, so no torches are needed."
+                    : "...but the selection is too small for any torch. Lower torchGridSpacing.");
+            return;
+        }
+        if (Baritone.settings().buildSkipBlocks.value.contains(Blocks.TORCH)) {
+            logDirect("WARNING: buildSkipBlocks contains torch, so every torch counts as already "
+                    + "placed and none will be built. Remove it with 'set buildSkipBlocks'.");
+        }
+        int carried = 0;
+        for (ItemStack stack : ctx.player().getInventory().items) {
+            if (stack.getItem() == Items.TORCH) {
+                carried += stack.getCount();
+            }
+        }
+        if (carried == 0) {
+            logDirect("WARNING: no torches in your inventory, so none will be placed.");
+        } else if (carried < torchCount) {
+            logDirect(String.format("Note: %d torches carried, %d wanted.", carried, torchCount));
         }
     }
 
