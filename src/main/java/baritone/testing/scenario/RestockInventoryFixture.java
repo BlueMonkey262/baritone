@@ -46,13 +46,24 @@ final class RestockInventoryFixture {
 
     /** Fill three protected slots and then the requested number of block-item junk slots. */
     static void stage(TestArena arena, int junkSlots) {
-        arena.command("item replace entity @s inventory.0 with minecraft:iron_pickaxe[damage=1]");
-        arena.command("item replace entity @s inventory.1 with minecraft:diamond_sword[damage=2]");
-        arena.command("item replace entity @s inventory.2 with minecraft:golden_apple");
+        arena.command("item replace entity @s " + playerSlot(0)
+                + " with minecraft:iron_pickaxe[damage=1]");
+        arena.command("item replace entity @s " + playerSlot(1)
+                + " with minecraft:diamond_sword[damage=2]");
+        arena.command("item replace entity @s " + playerSlot(2)
+                + " with minecraft:golden_apple");
         arena.command("item replace entity @s armor.head with minecraft:diamond_helmet");
         for (int i = 0; i < junkSlots; i++) {
-            arena.command("item replace entity @s inventory." + (i + 3) + " with " + JUNK_IDS[i]);
+            arena.command("item replace entity @s " + playerSlot(i + 3) + " with " + JUNK_IDS[i]);
         }
+    }
+
+    /**
+     * The player inventory's first nine non-equipment slots are the hotbar. The command's
+     * {@code inventory.N} range starts at the tenth slot and only has indices 0 through 26.
+     */
+    private static String playerSlot(int index) {
+        return index < 9 ? "hotbar." + index : "inventory." + (index - 9);
     }
 
     static boolean staged(TestArena arena, int junkSlots) {
