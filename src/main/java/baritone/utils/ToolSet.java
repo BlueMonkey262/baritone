@@ -93,6 +93,22 @@ public class ToolSet {
         }
     }
 
+    /**
+     * Whether {@code itemSaver} considers this stack too damaged to keep using.
+     */
+    public static boolean isSpent(ItemStack stack) {
+        return Baritone.settings().itemSaver.value
+                && isSpent(stack.getDamageValue(), stack.getMaxDamage(), Baritone.settings().itemSaverThreshold.value);
+    }
+
+    /**
+     * The arithmetic behind {@link #isSpent(ItemStack)}, split out so it can be tested without a
+     * Minecraft bootstrap.
+     */
+    public static boolean isSpent(int damageValue, int maxDamage, int threshold) {
+        return maxDamage > 1 && damageValue + threshold >= maxDamage;
+    }
+
     public boolean hasSilkTouch(ItemStack stack) {
         return EnchantmentHelper.getItemEnchantmentLevel(Enchantments.SILK_TOUCH, stack) > 0;
     }
@@ -110,6 +126,33 @@ public class ToolSet {
     }
 
     public int getBestSlot(Block b, boolean preferSilkTouch, boolean pathingCalculation) {
+        return getBestSlot(b, preferSilkTouch, pathingCalculation, true);
+    }
+
+    /**
+     * Whether {@code itemSaver} is currently costing us speed on this block.
+     */
+    public boolean isBlockedByItemSaver(Block b) {
+        return spentToolFor(b) != null;
+    }
+
+    /**
+     * The spent tool withheld by {@code itemSaver}, or {@code null} if the rule costs us nothing.
+     */
+    public ItemStack spentToolFor(Block b) {
+        if (!Baritone.settings().itemSaver.value) {
+            return null;
+        }
+        ItemStack saved = player.getInventory().getItem(getBestSlot(b, false, false, true));
+        ItemStack ignoring = player.getInventory().getItem(getBestSlot(b, false, false, false));
+        BlockState state = b.defaultBlockState();
+        if (calculateSpeedVsBlock(ignoring, state) <= calculateSpeedVsBlock(saved, state)) {
+            return null;
+        }
+        return isSpent(ignoring) ? ignoring : null;
+    }
+
+    private int getBestSlot(Block b, boolean preferSilkTouch, boolean pathingCalculation, boolean honorItemSaver) {
 
         /*
         If we actually want know what efficiency our held item has instead of the best one
@@ -130,7 +173,7 @@ public class ToolSet {
                 continue;
             }
 
-            if (Baritone.settings().itemSaver.value && (itemStack.getDamageValue() + Baritone.settings().itemSaverThreshold.value) >= itemStack.getMaxDamage() && itemStack.getMaxDamage() > 1) {
+            if (honorItemSaver && isSpent(itemStack)) {
                 continue;
             }
             double speed = calculateSpeedVsBlock(itemStack, blockState);

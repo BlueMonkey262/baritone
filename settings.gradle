@@ -39,9 +39,16 @@ pluginManagement {
     }
 }
 
+// Provisions a matching JDK when the toolchain build.gradle asks for is not installed. v0.2 builds
+// against several Minecraft versions, and they do not share a Java version -- 1.21.11 needs Java 21
+// while 26.1.2 needs 25. Fedora 44 packages neither 21 nor anything below 25, so without this a
+// version branch cannot even be configured on a current Fedora machine.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
 rootProject.name = 'baritone'
 
-include("tweaker")
 for (platform in available_loaders.split(",")) {
        include(platform)
 }

@@ -121,7 +121,7 @@ public class CalculationContext {
             depth = 3;
         }
         float mult = depth / 3.0F;
-        this.waterWalkSpeed = ActionCosts.WALK_ONE_IN_WATER_COST * (1 - mult) + ActionCosts.WALK_ONE_BLOCK_COST * mult;
+        this.waterWalkSpeed = ActionCosts.waterWalkCost(mult, Baritone.settings().waterCostMultiplier.value);
         this.breakBlockAdditionalCost = Baritone.settings().blockBreakAdditionalPenalty.value;
         this.backtrackCostFavoringCoefficient = Baritone.settings().backtrackCostFavoringCoefficient.value;
         this.jumpPenalty = Baritone.settings().jumpPenalty.value;
