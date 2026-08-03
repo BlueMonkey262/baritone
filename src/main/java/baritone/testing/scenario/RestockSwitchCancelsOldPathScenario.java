@@ -39,12 +39,8 @@ public final class RestockSwitchCancelsOldPathScenario extends TestScenario {
     private static final int FALLBACK_BOX_X = -4;
     private static final int FALLBACK_BOX_Z = 8;
 
-    private boolean sawFirstBox;
-    private boolean sawFallbackBox;
-    private boolean wasNearFirstBox;
-    private int firstBoxVisits;
-    private int startingWhite;
-    private int maximumWhite;
+    private int startingFirstBoxWhite;
+    private int startingFallbackBoxWhite;
 
     @Override
     public String name() {
@@ -97,6 +93,10 @@ public final class RestockSwitchCancelsOldPathScenario extends TestScenario {
                 && arena.stateAt(FIRST_BOX_X, 0, FIRST_BOX_Z).getBlock() instanceof ShulkerBoxBlock
                 && arena.stateAt(FIRST_BOX_X, 1, FIRST_BOX_Z).is(Blocks.STONE_SLAB)
                 && arena.stateAt(FALLBACK_BOX_X, 0, FALLBACK_BOX_Z).getBlock() instanceof ShulkerBoxBlock
+                && ScenarioInventory.countContainer(arena, FIRST_BOX_X, 0, FIRST_BOX_Z,
+                        Blocks.WHITE_CONCRETE.asItem()) == 8
+                && ScenarioInventory.countContainer(arena, FALLBACK_BOX_X, 0, FALLBACK_BOX_Z,
+                        Blocks.WHITE_CONCRETE.asItem()) == 8
                 && ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()) == 0;
     }
 
@@ -111,7 +111,12 @@ public final class RestockSwitchCancelsOldPathScenario extends TestScenario {
         }
         world.getRestockBoxes().addBox(first);
         world.getRestockBoxes().addBox(fallback);
-        this.startingWhite = ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem());
+        this.startingFirstBoxWhite = ScenarioInventory.countContainer(arena, FIRST_BOX_X, 0, FIRST_BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
+        this.startingFallbackBoxWhite = ScenarioInventory.countContainer(arena, FALLBACK_BOX_X, 0, FALLBACK_BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
+        arena.note("candidate-switch sources start at first=%d and fallback=%d; first must stay unchanged while fallback decreases",
+                this.startingFirstBoxWhite, this.startingFallbackBoxWhite);
         BetterBlockPos target = arena.at(BUILD_X, 0, 0);
         arena.baritone().getBuilderProcess().build(
                 "harness-" + name(),
@@ -124,59 +129,49 @@ public final class RestockSwitchCancelsOldPathScenario extends TestScenario {
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        boolean nearFirst = near(arena, arena.at(FIRST_BOX_X, 0, FIRST_BOX_Z));
-        if (nearFirst && !this.wasNearFirstBox) {
-            this.firstBoxVisits++;
-        }
-        this.wasNearFirstBox = nearFirst;
-        this.sawFirstBox |= nearFirst;
-        this.sawFallbackBox |= near(arena, arena.at(FALLBACK_BOX_X, 0, FALLBACK_BOX_Z));
-        this.maximumWhite = Math.max(this.maximumWhite,
-                ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()));
-
-        if (this.firstBoxVisits > 2 && !this.sawFallbackBox) {
-            return Verdict.fail("the player returned to the sealed first box %d times without switching candidates",
-                    this.firstBoxVisits);
+        int firstWhite = ScenarioInventory.countContainer(arena, FIRST_BOX_X, 0, FIRST_BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
+        int fallbackWhite = ScenarioInventory.countContainer(arena, FALLBACK_BOX_X, 0, FALLBACK_BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
+        if (firstWhite != this.startingFirstBoxWhite) {
+            return Verdict.fail("the blocked first candidate changed: first source white=%d (start=%d)",
+                    firstWhite, this.startingFirstBoxWhite);
         }
 
         boolean built = arena.stateAt(BUILD_X, 1, 0).is(Blocks.WHITE_CONCRETE);
         if (!built) {
             if (elapsedTicks >= 20 * 12 && !arena.baritone().getBuilderProcess().isActive()) {
-                return Verdict.fail("the fallback build stopped before placing its target; first box reached=%b, fallback reached=%b",
-                        this.sawFirstBox, this.sawFallbackBox);
+                return Verdict.fail("the fallback build stopped before placing its target; first source white=%d, fallback source white=%d",
+                        firstWhite, fallbackWhite);
             }
             return null;
         }
-        if (!this.sawFirstBox) {
-            return Verdict.fail("the build completed without reaching the unusable first candidate");
+        arena.note("candidate-switch evidence at t=%d: target complete, first source white=%d, fallback source white=%d (start=%d)",
+                elapsedTicks, firstWhite, fallbackWhite, this.startingFallbackBoxWhite);
+        if (fallbackWhite < 0 || fallbackWhite >= this.startingFallbackBoxWhite) {
+            return Verdict.fail("the target completed without a fallback source decrease: fallback source white=%d (start=%d)",
+                    fallbackWhite, this.startingFallbackBoxWhite);
         }
-        if (!this.sawFallbackBox) {
-            return Verdict.fail("the build completed without reaching the fallback candidate");
-        }
-        if (this.maximumWhite <= this.startingWhite) {
-            // The target and the visited fallback are positive evidence, but the inventory delta
-            // is the independent proof that the second box actually supplied the block.
-            return Verdict.fail("the fallback was reached and the target changed, but no white concrete entered the player inventory");
-        }
-        return Verdict.pass("the failed first candidate was visited once, the fallback supplied material, and the build resumed");
+        return Verdict.pass("the unchanged first candidate was skipped after its failed interaction, the fallback source changed, and the build resumed");
     }
 
     @Override
     public String progressMarker(TestArena arena) {
         BetterBlockPos feet = arena.ctx().playerFeet();
-        return String.format("target=%s,firstVisits=%d,fallback=%b,feet=%d,%d,%d",
-                arena.stateAt(BUILD_X, 1, 0).getBlock().getName().getString(), this.firstBoxVisits,
-                this.sawFallbackBox, feet.x, feet.y, feet.z);
+        return String.format("target=%s,firstWhite=%d,fallbackWhite=%d,feet=%d,%d,%d",
+                arena.stateAt(BUILD_X, 1, 0).getBlock().getName().getString(),
+                ScenarioInventory.countContainer(arena, FIRST_BOX_X, 0, FIRST_BOX_Z, Blocks.WHITE_CONCRETE.asItem()),
+                ScenarioInventory.countContainer(arena, FALLBACK_BOX_X, 0, FALLBACK_BOX_Z, Blocks.WHITE_CONCRETE.asItem()),
+                feet.x, feet.y, feet.z);
     }
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return String.format("firstBoxReached=%b, fallbackReached=%b, firstBoxVisits=%d, target=%s, player=%s",
-                this.sawFirstBox, this.sawFallbackBox, this.firstBoxVisits,
+        return String.format("firstSourceWhite=%d/%d, fallbackSourceWhite=%d/%d, target=%s, player=%s",
+                ScenarioInventory.countContainer(arena, FIRST_BOX_X, 0, FIRST_BOX_Z, Blocks.WHITE_CONCRETE.asItem()),
+                this.startingFirstBoxWhite,
+                ScenarioInventory.countContainer(arena, FALLBACK_BOX_X, 0, FALLBACK_BOX_Z, Blocks.WHITE_CONCRETE.asItem()),
+                this.startingFallbackBoxWhite,
                 arena.stateAt(BUILD_X, 1, 0).getBlock().getName().getString(), arena.ctx().playerFeet());
-    }
-
-    private static boolean near(TestArena arena, BetterBlockPos pos) {
-        return arena.ctx().playerFeet().distSqr(pos) <= 9.0;
     }
 }

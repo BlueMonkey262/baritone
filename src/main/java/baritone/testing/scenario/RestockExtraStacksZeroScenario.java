@@ -38,7 +38,7 @@ public final class RestockExtraStacksZeroScenario extends TestScenario {
     private static final int BUILD_X = 6;
     private static final int TARGETS = 3;
 
-    private boolean sawBox;
+    private int startingBoxWhite;
     private int maximumWhite;
 
     @Override
@@ -87,6 +87,8 @@ public final class RestockExtraStacksZeroScenario extends TestScenario {
                 && arena.stateAt(BUILD_X + TARGETS - 1, 0, 0).is(Blocks.STONE)
                 && arena.stateAt(BUILD_X, 1, 0).isAir()
                 && arena.stateAt(BOX_X, 0, BOX_Z).getBlock() instanceof ShulkerBoxBlock
+                && ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Blocks.WHITE_CONCRETE.asItem())
+                        == 64 + TARGETS
                 && ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()) == 0;
     }
 
@@ -99,6 +101,10 @@ public final class RestockExtraStacksZeroScenario extends TestScenario {
             return;
         }
         world.getRestockBoxes().addBox(box);
+        this.startingBoxWhite = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
+        arena.note("starting exact-shortfall source white=%d; expected it to fall to 64 after fetching %d",
+                this.startingBoxWhite, TARGETS);
         BetterBlockPos target = arena.at(BUILD_X, 0, 0);
         arena.baritone().getBuilderProcess().build(
                 "harness-" + name(), schematic(), new Vec3i(target.x, target.y, target.z));
@@ -106,20 +112,23 @@ public final class RestockExtraStacksZeroScenario extends TestScenario {
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        this.sawBox |= arena.ctx().playerFeet().distSqr(arena.at(BOX_X, 0, BOX_Z)) <= 9.0;
         this.maximumWhite = Math.max(this.maximumWhite,
                 ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()));
+        int boxWhite = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
         int missing = missingTargets(arena);
         if (missing != 0) {
             if (elapsedTicks >= 20 * 12 && !arena.baritone().getBuilderProcess().isActive()) {
-                return Verdict.fail("the exact-shortfall build stopped with %d target(s) missing; box reached=%b",
-                        missing, this.sawBox);
+                return Verdict.fail("the exact-shortfall build stopped with %d target(s) missing; source white=%d/%d",
+                        missing, boxWhite, this.startingBoxWhite);
             }
             return null;
         }
-        if (!this.sawBox || this.maximumWhite != TARGETS) {
-            return Verdict.fail("the three targets completed with box reached=%b and maximum white-concrete inventory=%d; expected exactly %d",
-                    this.sawBox, this.maximumWhite, TARGETS);
+        arena.note("exact-shortfall evidence at t=%d: source white=%d -> %d, maximum carried white=%d, targets=%d",
+                elapsedTicks, this.startingBoxWhite, boxWhite, this.maximumWhite, TARGETS);
+        if (boxWhite != 64 || this.maximumWhite != TARGETS) {
+            return Verdict.fail("the three targets completed with source white=%d (started %d) and maximum white-concrete inventory=%d; expected source=64 and maximum=%d",
+                    boxWhite, this.startingBoxWhite, this.maximumWhite, TARGETS);
         }
         if (ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()) != 0) {
             return Verdict.fail("the build completed with surplus white concrete still carried: %d",
@@ -130,8 +139,9 @@ public final class RestockExtraStacksZeroScenario extends TestScenario {
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return String.format("missing=%d, boxReached=%b, maximumWhite=%d, carriedWhite=%d, player=%s",
-                missingTargets(arena), this.sawBox, this.maximumWhite,
+        return String.format("missing=%d, sourceWhite=%d/%d, maximumWhite=%d, carriedWhite=%d, player=%s",
+                missingTargets(arena), ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z,
+                        Blocks.WHITE_CONCRETE.asItem()), this.startingBoxWhite, this.maximumWhite,
                 ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()), arena.ctx().playerFeet());
     }
 

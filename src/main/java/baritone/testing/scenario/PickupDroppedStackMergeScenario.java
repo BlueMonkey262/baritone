@@ -55,7 +55,8 @@ public final class PickupDroppedStackMergeScenario extends AbstractMiningScenari
     public void stage(TestArena arena) {
         stageMiningArena(arena);
         arena.command("kill @e[type=minecraft:item,distance=..64]");
-        arena.fill(TARGET_X, 0, 0, TARGET_X + 6, 0, 0, "minecraft:water");
+        arena.setBlock(TARGET_X, 0, 0, "minecraft:stone");
+        arena.fill(TARGET_X + 1, 0, 0, TARGET_X + 6, 0, 0, "minecraft:water");
         arena.setBlock(TARGET_X, 1, 0, "minecraft:stone");
         arena.command("give @s minecraft:cobblestone 63");
         arena.command("give @s minecraft:diamond 1");
@@ -66,7 +67,8 @@ public final class PickupDroppedStackMergeScenario extends AbstractMiningScenari
     public boolean stagingComplete(TestArena arena) {
         return floorAndAirStaged(arena)
                 && arena.stateAt(TARGET_X, 1, 0).is(Blocks.STONE)
-                && arena.stateAt(TARGET_X, 0, 0).is(Blocks.WATER)
+                && arena.stateAt(TARGET_X, 0, 0).is(Blocks.STONE)
+                && arena.stateAt(TARGET_X + 1, 0, 0).is(Blocks.WATER)
                 && arena.stateAt(TARGET_X + 6, 0, 0).is(Blocks.WATER)
                 && countPlayer(arena, Items.COBBLESTONE) == 63
                 && countPlayer(arena, Items.DIAMOND) == 1

@@ -40,9 +40,7 @@ public final class RestockOpenContainerOneShotScenario extends TestScenario {
     private static final int DOOR_X = 3;
     private static final int DOOR_Z = 4;
 
-    private boolean sawRestock;
-    private boolean sawBox;
-    private int maximumWhite;
+    private int startingBoxWhite;
 
     @Override
     public String name() {
@@ -91,6 +89,7 @@ public final class RestockOpenContainerOneShotScenario extends TestScenario {
         return arena.stateAt(BUILD_X, 0, 0).is(Blocks.STONE)
                 && arena.stateAt(BUILD_X, 1, 0).isAir()
                 && arena.stateAt(BOX_X, 0, BOX_Z).getBlock() instanceof ShulkerBoxBlock
+                && ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Blocks.WHITE_CONCRETE.asItem()) == 8
                 && arena.stateAt(DOOR_X, 0, DOOR_Z).getBlock() == Blocks.OAK_DOOR
                 && !arena.stateAt(DOOR_X, 0, DOOR_Z).getValue(BlockStateProperties.OPEN)
                 && ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()) == 0;
@@ -105,6 +104,10 @@ public final class RestockOpenContainerOneShotScenario extends TestScenario {
             return;
         }
         world.getRestockBoxes().addBox(box);
+        this.startingBoxWhite = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
+        arena.note("starting one-shot source white=%d; the verdict requires a source decrease and a closed door",
+                this.startingBoxWhite);
         BetterBlockPos target = arena.at(BUILD_X, 0, 0);
         arena.baritone().getBuilderProcess().build(
                 "harness-" + name(),
@@ -117,31 +120,34 @@ public final class RestockOpenContainerOneShotScenario extends TestScenario {
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        this.sawRestock |= AbstractBoxBuildScenario.inControl(arena).toLowerCase().contains("restock");
-        this.sawBox |= arena.ctx().playerFeet().distSqr(arena.at(BOX_X, 0, BOX_Z)) <= 9.0;
-        this.maximumWhite = Math.max(this.maximumWhite,
-                ScenarioInventory.countPlayer(arena, Blocks.WHITE_CONCRETE.asItem()));
-
         if (arena.stateAt(DOOR_X, 0, DOOR_Z).getValue(BlockStateProperties.OPEN)) {
             return Verdict.fail("the neighboring oak door opened while the restock interaction was in progress");
         }
+        int sourceWhite = ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z,
+                Blocks.WHITE_CONCRETE.asItem());
         if (!arena.stateAt(BUILD_X, 1, 0).is(Blocks.WHITE_CONCRETE)) {
             if (elapsedTicks >= 20 * 12 && !arena.baritone().getBuilderProcess().isActive()) {
-                return Verdict.fail("the build stopped without proving a completed transfer; box reached=%b, restock control=%b",
-                        this.sawBox, this.sawRestock);
+                return Verdict.fail("the build stopped without proving a completed transfer; source white=%d (start=%d)",
+                        sourceWhite, this.startingBoxWhite);
             }
             return null;
         }
-        if (!this.sawRestock || !this.sawBox || this.maximumWhite <= 0) {
-            return Verdict.fail("the target completed without independent evidence of a box visit and player inventory gain");
+        arena.note("one-shot evidence at t=%d: target complete, source white=%d -> %d, door open=%b",
+                elapsedTicks, this.startingBoxWhite, sourceWhite,
+                arena.stateAt(DOOR_X, 0, DOOR_Z).getValue(BlockStateProperties.OPEN));
+        if (sourceWhite < 0 || sourceWhite >= this.startingBoxWhite) {
+            return Verdict.fail("the target completed without a source-box content decrease: source white=%d (start=%d)",
+                    sourceWhite, this.startingBoxWhite);
         }
-        return Verdict.pass("the source was reached, material entered the player inventory, and the adjacent door stayed closed");
+        return Verdict.pass("the target completed after the source box changed, and the adjacent door stayed closed");
     }
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return String.format("target=%s,boxReached=%b,restockControl=%b,maxWhite=%d,doorOpen=%b,player=%s",
-                arena.stateAt(BUILD_X, 1, 0).getBlock().getName().getString(), this.sawBox, this.sawRestock,
-                this.maximumWhite, arena.stateAt(DOOR_X, 0, DOOR_Z).getValue(BlockStateProperties.OPEN), arena.ctx().playerFeet());
+        return String.format("target=%s,sourceWhite=%d/%d,doorOpen=%b,player=%s",
+                arena.stateAt(BUILD_X, 1, 0).getBlock().getName().getString(),
+                ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Blocks.WHITE_CONCRETE.asItem()),
+                this.startingBoxWhite, arena.stateAt(DOOR_X, 0, DOOR_Z).getValue(BlockStateProperties.OPEN),
+                arena.ctx().playerFeet());
     }
 }
