@@ -31,6 +31,7 @@ public final class PickupOwnedDropOnlyScenario extends AbstractMiningScenario {
 
     private static final int TARGET_X = 5;
     private static final int OLD_DROP_X = 5;
+    /** Diagonally within the process's association radius, but outside incidental player pickup. */
     private static final int OLD_DROP_Z = 1;
     private UUID oldDrop;
 
@@ -41,7 +42,7 @@ public final class PickupOwnedDropOnlyScenario extends AbstractMiningScenario {
 
     @Override
     public String description() {
-        return "Pick up the fresh stone drop while leaving an older nearby cobblestone drop alone";
+        return "Pick up a water-displaced fresh drop while leaving an older pickup-eligible drop alone";
     }
 
     @Override
@@ -60,15 +61,18 @@ public final class PickupOwnedDropOnlyScenario extends AbstractMiningScenario {
     public void stage(TestArena arena) {
         stageMiningArena(arena);
         arena.command("kill @e[type=minecraft:item,distance=..64]");
-        arena.setBlock(TARGET_X, 0, 0, "minecraft:stone");
-        stageProtectedItem(arena, Items.COBBLESTONE, 1, OLD_DROP_X, 0, OLD_DROP_Z);
+        arena.fill(TARGET_X, 0, 0, TARGET_X + 6, 0, 0, "minecraft:water");
+        arena.setBlock(TARGET_X, 1, 0, "minecraft:stone");
+        stagePickupEligibleItem(arena, Items.COBBLESTONE, 1, OLD_DROP_X, 0, OLD_DROP_Z);
         arena.command("give @s minecraft:iron_pickaxe 1");
     }
 
     @Override
     public boolean stagingComplete(TestArena arena) {
         return floorAndAirStaged(arena)
-                && arena.stateAt(TARGET_X, 0, 0).is(Blocks.STONE)
+                && arena.stateAt(TARGET_X, 1, 0).is(Blocks.STONE)
+                && arena.stateAt(TARGET_X, 0, 0).is(Blocks.WATER)
+                && arena.stateAt(TARGET_X + 6, 0, 0).is(Blocks.WATER)
                 && findItemAt(arena, Items.COBBLESTONE, arena.at(OLD_DROP_X, 0, OLD_DROP_Z)) != null
                 && countPlayer(arena, Items.IRON_PICKAXE) == 1
                 && countPlayer(arena, Items.COBBLESTONE) == 0;
@@ -83,7 +87,7 @@ public final class PickupOwnedDropOnlyScenario extends AbstractMiningScenario {
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        boolean targetGone = !arena.stateAt(TARGET_X, 0, 0).is(Blocks.STONE);
+        boolean targetGone = !arena.stateAt(TARGET_X, 1, 0).is(Blocks.STONE);
         boolean oldAlive = this.oldDrop != null && itemEntityAlive(arena, this.oldDrop);
         int freshOwned = countPlayer(arena, Items.COBBLESTONE);
         if (targetGone && freshOwned == 1 && oldAlive) {

@@ -24,10 +24,11 @@ import net.minecraft.world.level.block.Blocks;
 import java.util.HashMap;
 import java.util.Map;
 
-/** A water-displaced drop must be collected before a quantity-one mine is considered complete. */
+/** A water-displaced drop must remain pending before a quantity-one mine can complete. */
 public final class MineDelayedDropScenario extends AbstractMiningScenario {
 
     private static final int TARGET_X = 4;
+    private boolean observedPendingPickup;
 
     @Override
     public String name() {
@@ -36,7 +37,7 @@ public final class MineDelayedDropScenario extends AbstractMiningScenario {
 
     @Override
     public String description() {
-        return "Wait for a stone drop displaced by water before completing a quantity-one mine";
+        return "Observe a pending water-displaced stone drop before completing a quantity-one mine";
     }
 
     @Override
@@ -56,7 +57,8 @@ public final class MineDelayedDropScenario extends AbstractMiningScenario {
     @Override
     public void stage(TestArena arena) {
         stageMiningArena(arena);
-        arena.fill(TARGET_X, 0, 0, TARGET_X + 6, 0, 0, "minecraft:water");
+        arena.command("kill @e[type=minecraft:item,distance=..64]");
+        arena.fill(TARGET_X, 0, 0, TARGET_X + 10, 0, 0, "minecraft:water");
         arena.setBlock(TARGET_X, 1, 0, "minecraft:stone");
         arena.command("give @s minecraft:iron_pickaxe 1");
     }
@@ -66,11 +68,15 @@ public final class MineDelayedDropScenario extends AbstractMiningScenario {
         return floorAndAirStaged(arena)
                 && arena.stateAt(TARGET_X, 1, 0).is(Blocks.STONE)
                 && arena.stateAt(TARGET_X, 0, 0).is(Blocks.WATER)
+                && arena.stateAt(TARGET_X + 10, 0, 0).is(Blocks.WATER)
+                && countBlockEntities(arena, Items.COBBLESTONE) == 0
+                && countPlayer(arena, Items.COBBLESTONE) == 0
                 && countPlayer(arena, Items.IRON_PICKAXE) == 1;
     }
 
     @Override
     public void start(TestArena arena) {
+        this.observedPendingPickup = false;
         arena.baritone().getMineProcess().mine(1, Blocks.STONE);
     }
 
@@ -78,16 +84,25 @@ public final class MineDelayedDropScenario extends AbstractMiningScenario {
     public Verdict poll(TestArena arena, int elapsedTicks) {
         boolean targetIntact = arena.stateAt(TARGET_X, 1, 0).is(Blocks.STONE);
         int cobblestone = countPlayer(arena, Items.COBBLESTONE);
-        if (!targetIntact && cobblestone >= 1) {
-            return Verdict.pass("completed only after the water-displaced cobblestone reached the inventory");
+        int dropsInWorld = countBlockEntities(arena, Items.COBBLESTONE);
+        boolean pickupActive = arena.baritone().getPickupBlocksProcess().isActive();
+        if (!targetIntact && cobblestone == 0 && dropsInWorld >= 1 && pickupActive) {
+            this.observedPendingPickup = true;
+        }
+        if (!targetIntact && this.observedPendingPickup && cobblestone >= 1 && !mineActive(arena)) {
+            return Verdict.pass("the water-displaced cobblestone was observed pending before mine completion");
+        }
+        if (!targetIntact && elapsedTicks >= 20 * 20 && !this.observedPendingPickup) {
+            return Verdict.fail("target broke without an observed pending pickup: cobblestone=%d, drops=%d, pickupActive=%b",
+                    cobblestone, dropsInWorld, pickupActive);
         }
         if (!targetIntact && elapsedTicks >= 20 * 20) {
-            return Verdict.fail("target broke but the delayed drop was not collected: cobblestone=%d, active=%b",
-                    cobblestone, mineActive(arena));
+            return Verdict.fail("target broke but the pending delayed drop was not collected: cobblestone=%d, drops=%d, active=%b",
+                    cobblestone, dropsInWorld, mineActive(arena));
         }
         if (elapsedTicks >= tickBudget()) {
-            return Verdict.fail("did not mine the water-displaced target: targetIntact=%b, cobblestone=%d",
-                    targetIntact, cobblestone);
+            return Verdict.fail("did not mine the water-displaced target: targetIntact=%b, cobblestone=%d, pending=%b",
+                    targetIntact, cobblestone, this.observedPendingPickup);
         }
         return null;
     }

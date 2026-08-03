@@ -18,6 +18,7 @@
 package baritone.testing.scenario;
 
 import baritone.testing.TestArena;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Blocks;
 
 import java.util.HashMap;
@@ -35,7 +36,7 @@ public final class MineNoToolFallbackScenario extends AbstractMiningScenario {
 
     @Override
     public String description() {
-        return "Stop cleanly on obsidian when no suitable pickaxe exists";
+        return "Stop cleanly on bedrock when no tool can break it";
     }
 
     @Override
@@ -53,31 +54,37 @@ public final class MineNoToolFallbackScenario extends AbstractMiningScenario {
     @Override
     public void stage(TestArena arena) {
         stageMiningArena(arena);
-        arena.setBlock(4, 0, 0, "minecraft:obsidian");
+        arena.setBlock(4, 0, 0, "minecraft:bedrock");
     }
 
     @Override
     public boolean stagingComplete(TestArena arena) {
         return floorAndAirStaged(arena)
-                && countBlocks(arena, Blocks.OBSIDIAN, TARGETS) == 1;
+                && countBlocks(arena, Blocks.BEDROCK, TARGETS) == 1
+                && countPlayer(arena, Items.WOODEN_PICKAXE) == 0
+                && countPlayer(arena, Items.STONE_PICKAXE) == 0
+                && countPlayer(arena, Items.IRON_PICKAXE) == 0
+                && countPlayer(arena, Items.GOLDEN_PICKAXE) == 0
+                && countPlayer(arena, Items.DIAMOND_PICKAXE) == 0
+                && countPlayer(arena, Items.NETHERITE_PICKAXE) == 0;
     }
 
     @Override
     public void start(TestArena arena) {
-        arena.baritone().getMineProcess().mine(Blocks.OBSIDIAN);
+        arena.baritone().getMineProcess().mine(Blocks.BEDROCK);
     }
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        boolean intact = countBlocks(arena, Blocks.OBSIDIAN, TARGETS) == 1;
+        boolean intact = countBlocks(arena, Blocks.BEDROCK, TARGETS) == 1;
         if (!intact) {
-            return Verdict.fail("the no-tool mine changed the obsidian target");
+            return Verdict.fail("the no-tool mine changed the bedrock target");
         }
         if (!mineActive(arena) && elapsedTicks >= 20) {
             return Verdict.pass("the mine stopped on the unbreakable target instead of retrying forever");
         }
         if (elapsedTicks >= tickBudget()) {
-            return Verdict.fail("mine stayed active for %d ticks on an obsidian target with no tool",
+            return Verdict.fail("mine stayed active for %d ticks on a bedrock target with no tool",
                     elapsedTicks);
         }
         return null;

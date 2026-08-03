@@ -137,12 +137,23 @@ abstract class AbstractMiningScenario extends TestScenario {
 
     /** Stage a non-player item with pickup disabled, for old-drop association controls. */
     protected final void stageProtectedItem(TestArena arena, Item item, int count, int x, int y, int z) {
+        stageItem(arena, item, count, x, y, z, 32767);
+    }
+
+    /** Stage a non-player item that vanilla and Baritone are both allowed to pick up. */
+    protected final void stagePickupEligibleItem(TestArena arena, Item item, int count,
+                                                 int x, int y, int z) {
+        stageItem(arena, item, count, x, y, z, 0);
+    }
+
+    private void stageItem(TestArena arena, Item item, int count, int x, int y, int z,
+                           int pickupDelay) {
         BlockPos position = arena.at(x, y, z);
         arena.command(String.format(
                 "summon minecraft:item %.1f %.1f %.1f "
-                        + "{Item:{id:\"minecraft:%s\",count:%d},PickupDelay:32767s,Age:-32768s}",
+                        + "{Item:{id:\"minecraft:%s\",count:%d},PickupDelay:%ds,Age:-32768s}",
                 position.getX() + 0.5, position.getY() + 0.2, position.getZ() + 0.5,
-                BuiltInRegistries.ITEM.getKey(item).getPath(), count));
+                BuiltInRegistries.ITEM.getKey(item).getPath(), count, pickupDelay));
     }
 
     protected final boolean mineActive(TestArena arena) {
