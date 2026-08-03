@@ -110,11 +110,10 @@ final class ScenarioInventory {
 
     static int countContainerMatching(TestArena arena, int x, int y, int z, Item item,
                                       Predicate<ItemStack> predicate) {
-        Object entity = arena.ctx().world().getBlockEntity(arena.at(x, y, z));
-        if (!(entity instanceof Container)) {
+        Container container = container(arena, x, y, z);
+        if (container == null) {
             return -1;
         }
-        Container container = (Container) entity;
         int count = 0;
         for (int slot = 0; slot < container.getContainerSize(); slot++) {
             ItemStack stack = container.getItem(slot);
