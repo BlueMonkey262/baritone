@@ -73,13 +73,11 @@ public final class BuilderOrientTimeoutIndependentTargetScenario extends TestSce
     public void stage(TestArena arena) {
         arena.fill(-4, -3, -12, 20, -1, 12, "minecraft:stone");
         arena.fill(-4, 0, -12, 20, 4, 12, "minecraft:air");
-        // Bedrock seals every practical standing and line-of-sight position around the first
-        // stair. The floor remains stone, but the player cannot reach a placeable face through the
-        // cage while allowBreak is off.
-        arena.fill(IMPOSSIBLE_X - 1, 0, 0, IMPOSSIBLE_X + 1, 1, 0, "minecraft:bedrock");
-        arena.fill(IMPOSSIBLE_X, 0, -1, IMPOSSIBLE_X, 1, 1, "minecraft:bedrock");
+        // A closed shell seals every stand position around the first stair. The floor remains
+        // stone, but the player cannot reach a placeable face through the shell while allowBreak
+        // is off.
+        arena.fill(IMPOSSIBLE_X - 2, 0, -2, IMPOSSIBLE_X + 2, 1, 2, "minecraft:bedrock");
         arena.setBlock(IMPOSSIBLE_X, 0, 0, "minecraft:air");
-        arena.setBlock(IMPOSSIBLE_X, 1, 0, "minecraft:bedrock");
         arena.command("clear @s");
         arena.command("give @s minecraft:oak_stairs 2");
         arena.teleport(0, 0, 0);
@@ -87,13 +85,25 @@ public final class BuilderOrientTimeoutIndependentTargetScenario extends TestSce
 
     @Override
     public boolean stagingComplete(TestArena arena) {
-        return arena.stateAt(0, -1, 0).is(Blocks.STONE)
-                && arena.stateAt(IMPOSSIBLE_X, 0, 0).isAir()
-                && arena.stateAt(IMPOSSIBLE_X, 1, 0).is(Blocks.BEDROCK)
-                && arena.stateAt(IMPOSSIBLE_X - 1, 0, 0).is(Blocks.BEDROCK)
-                && arena.stateAt(IMPOSSIBLE_X + 1, 0, 0).is(Blocks.BEDROCK)
-                && arena.stateAt(INDEPENDENT_X, 0, 0).isAir()
-                && ScenarioInventory.countPlayer(arena, Items.OAK_STAIRS) == 2;
+        if (!arena.stateAt(0, -1, 0).is(Blocks.STONE)
+                || !arena.stateAt(IMPOSSIBLE_X, 0, 0).isAir()
+                || !arena.stateAt(INDEPENDENT_X, 0, 0).isAir()
+                || ScenarioInventory.countPlayer(arena, Items.OAK_STAIRS) != 2) {
+            return false;
+        }
+        for (int x = IMPOSSIBLE_X - 2; x <= IMPOSSIBLE_X + 2; x++) {
+            for (int z = -2; z <= 2; z++) {
+                for (int y = 0; y <= 1; y++) {
+                    if (x == IMPOSSIBLE_X && y == 0 && z == 0) {
+                        continue;
+                    }
+                    if (!arena.stateAt(x, y, z).is(Blocks.BEDROCK)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     @Override

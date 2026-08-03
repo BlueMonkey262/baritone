@@ -32,7 +32,7 @@ public final class BackfillNoRubbleScenario extends TestScenario {
 
     private static final int WALL_X = 5;
     private static final int GOAL_X = 12;
-    private static final int WALL_BLOCKS = 3;
+    private static final int WALL_BLOCKS = 6;
     private GoalBlock goal;
     private boolean sawWallBreak;
     private boolean notedWallOpen;
@@ -68,7 +68,7 @@ public final class BackfillNoRubbleScenario extends TestScenario {
         arena.fill(-2, -3, -2, 16, -1, 2, "minecraft:stone");
         arena.fill(-2, 0, -2, 16, 3, -2, "minecraft:stone");
         arena.fill(-2, 0, 2, 16, 3, 2, "minecraft:stone");
-        arena.fill(WALL_X, 0, -1, WALL_X, 0, 1, "minecraft:stone");
+        arena.fill(WALL_X, 0, -1, WALL_X, 1, 1, "minecraft:stone");
         arena.command("clear @s");
         arena.command("give @s minecraft:iron_pickaxe 1");
         arena.teleport(0, 0, 0);
@@ -78,7 +78,7 @@ public final class BackfillNoRubbleScenario extends TestScenario {
     public boolean stagingComplete(TestArena arena) {
         return arena.stateAt(0, -1, 0).is(Blocks.STONE)
                 && countWall(arena) == WALL_BLOCKS
-                && arena.stateAt(WALL_X, 1, 0).isAir()
+                && arena.stateAt(WALL_X, 2, 0).isAir()
                 && ScenarioInventory.countPlayer(arena, Items.IRON_PICKAXE) == 1
                 && ScenarioInventory.countPlayer(arena, Items.COBBLESTONE) == 0
                 && ScenarioInventory.countPlayer(arena, Items.DIRT) == 0;
@@ -128,9 +128,11 @@ public final class BackfillNoRubbleScenario extends TestScenario {
 
     private static int countWall(TestArena arena) {
         int count = 0;
-        for (int z = -1; z <= 1; z++) {
-            if (arena.stateAt(WALL_X, 0, z).is(Blocks.STONE)) {
-                count++;
+        for (int y = 0; y <= 1; y++) {
+            for (int z = -1; z <= 1; z++) {
+                if (arena.stateAt(WALL_X, y, z).is(Blocks.STONE)) {
+                    count++;
+                }
             }
         }
         return count;

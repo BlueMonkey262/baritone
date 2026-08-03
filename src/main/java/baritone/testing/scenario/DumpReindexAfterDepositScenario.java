@@ -204,9 +204,10 @@ public final class DumpReindexAfterDepositScenario extends TestScenario {
     }
 
     private static StaticSchematic clearSchematic() {
-        return new StaticSchematic(new BlockState[][][]{{{
-                Blocks.AIR.defaultBlockState(), Blocks.AIR.defaultBlockState()
-        }}});
+        return new StaticSchematic(new BlockState[][][]{
+                {{Blocks.AIR.defaultBlockState()}},
+                {{Blocks.AIR.defaultBlockState()}}
+        });
     }
 
     private static int countJunk(TestArena arena) {

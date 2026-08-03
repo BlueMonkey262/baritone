@@ -72,7 +72,11 @@ public final class ContainerExactRestockSourceScenario extends TestScenario {
         arena.command("clear @s");
         arena.setBlock(BUILD_X, 0, 0, "minecraft:stone");
         ContainerFixture.emptyBox(arena, BOX_X, 0, BOX_Z);
-        ContainerFixture.put(arena, BOX_X, 0, BOX_Z, 0, Items.WHITE_CONCRETE, SOURCE_COUNT);
+        // quickMove transfers a complete source slot. Separate one-item slots make the intended
+        // two-item total remainder observable without depending on a partial-stack transfer.
+        for (int slot = 0; slot < SOURCE_COUNT; slot++) {
+            ContainerFixture.put(arena, BOX_X, 0, BOX_Z, slot, Items.WHITE_CONCRETE, 1);
+        }
         arena.teleport(0, 0, 0);
     }
 
@@ -82,6 +86,7 @@ public final class ContainerExactRestockSourceScenario extends TestScenario {
                 && arena.stateAt(BUILD_X, 1, 0).isAir()
                 && ContainerFixture.isBox(arena, BOX_X, 0, BOX_Z)
                 && ScenarioInventory.countContainer(arena, BOX_X, 0, BOX_Z, Items.WHITE_CONCRETE) == SOURCE_COUNT
+                && ScenarioInventory.countContainerSlots(arena, BOX_X, 0, BOX_Z, Items.WHITE_CONCRETE) == SOURCE_COUNT
                 && ScenarioInventory.countPlayer(arena, Items.WHITE_CONCRETE) == 0;
     }
 

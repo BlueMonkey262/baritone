@@ -54,8 +54,9 @@ public final class DumpActiveSubstituteKeptScenario extends TestScenario {
             Items.BLACK_WOOL, Items.GRAY_WOOL
     };
 
-    private boolean sawBox;
+    private boolean sawDeposit;
     private int initialJunk;
+    private int initialBoxSlots;
 
     @Override
     public String name() {
@@ -108,7 +109,8 @@ public final class DumpActiveSubstituteKeptScenario extends TestScenario {
         return arena.stateAt(BOX_X, 0, BOX_Z).getBlock() instanceof ShulkerBoxBlock
                 && arena.stateAt(BUILD_X, 0, 0).isAir()
                 && ScenarioInventory.countPlayer(arena, Items.DIRT) == 2
-                && countJunk(arena) == JUNK.length;
+                && countJunk(arena) == JUNK.length
+                && ScenarioInventory.countNonEmptyContainerSlots(arena, BOX_X, 0, BOX_Z) == 0;
     }
 
     @Override
@@ -121,6 +123,7 @@ public final class DumpActiveSubstituteKeptScenario extends TestScenario {
         }
         world.getRestockBoxes().addBox(box);
         this.initialJunk = countJunk(arena);
+        this.initialBoxSlots = ScenarioInventory.countNonEmptyContainerSlots(arena, BOX_X, 0, BOX_Z);
         BetterBlockPos target = arena.at(BUILD_X, 0, 0);
         arena.baritone().getBuilderProcess().build(
                 "harness-" + name(), schematic(), new Vec3i(target.x, target.y, target.z));
@@ -128,7 +131,8 @@ public final class DumpActiveSubstituteKeptScenario extends TestScenario {
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        this.sawBox |= arena.ctx().playerFeet().distSqr(arena.at(BOX_X, 0, BOX_Z)) <= 9.0;
+        int boxSlots = ScenarioInventory.countNonEmptyContainerSlots(arena, BOX_X, 0, BOX_Z);
+        this.sawDeposit |= boxSlots > this.initialBoxSlots;
         int first = dirtTargets(arena);
         if (first == BUILD_BLOCKS && ScenarioInventory.countPlayer(arena, Items.DIRT) != 0) {
             return Verdict.fail("both substitute targets are placed, but dirt inventory accounting is inconsistent");
@@ -136,22 +140,27 @@ public final class DumpActiveSubstituteKeptScenario extends TestScenario {
         if (first != BUILD_BLOCKS) {
             if (elapsedTicks >= 20 * 12 && !arena.baritone().getBuilderProcess().isActive()) {
                 return Verdict.fail("builder stopped with %d/%d dirt substitute targets placed; box reached=%b, junk reduced=%d",
-                        first, BUILD_BLOCKS, this.sawBox, this.initialJunk - countJunk(arena));
+                        first, BUILD_BLOCKS, this.sawDeposit, this.initialJunk - countJunk(arena));
             }
             return null;
         }
         int reduced = this.initialJunk - countJunk(arena);
-        if (!this.sawBox || reduced <= 0) {
-            return Verdict.fail("the substitute build completed without an unload trip: box reached=%b, junk reduced=%d",
-                    this.sawBox, reduced);
+        if (!this.sawDeposit || reduced <= 0) {
+            return Verdict.fail("the substitute build completed without a server-measured deposit: box slots=%d/%d, junk reduced=%d",
+                    boxSlots, this.initialBoxSlots, reduced);
         }
+        arena.note("unload evidence at t=%d: destination occupied slots=%d/%d, junk reduced=%d, dirt=%d",
+                elapsedTicks, boxSlots, this.initialBoxSlots, reduced,
+                ScenarioInventory.countPlayer(arena, Items.DIRT));
         return Verdict.pass("the active dirt substitute survived unloading and supplied both later build targets");
     }
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return String.format("targets=%d/%d,boxReached=%b,junk=%d/%d,dirt=%d,player=%s",
-                dirtTargets(arena), BUILD_BLOCKS, this.sawBox, countJunk(arena), this.initialJunk,
+        return String.format("targets=%d/%d,boxSlots=%d/%d,depositMeasured=%b,junk=%d/%d,dirt=%d,player=%s",
+                dirtTargets(arena), BUILD_BLOCKS,
+                ScenarioInventory.countNonEmptyContainerSlots(arena, BOX_X, 0, BOX_Z), this.initialBoxSlots,
+                this.sawDeposit, countJunk(arena), this.initialJunk,
                 ScenarioInventory.countPlayer(arena, Items.DIRT), arena.ctx().playerFeet());
     }
 

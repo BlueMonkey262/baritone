@@ -24,7 +24,6 @@ import baritone.testing.TestScenario;
 import baritone.utils.schematic.StaticSchematic;
 import net.minecraft.core.Vec3i;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.Container;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.ItemStack;
@@ -346,18 +345,7 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
     }
 
     private static int occupiedSlots(TestArena arena, int x, int y, int z) {
-        Object entity = arena.ctx().world().getBlockEntity(arena.at(x, y, z));
-        if (!(entity instanceof Container)) {
-            return -1;
-        }
-        Container container = (Container) entity;
-        int occupied = 0;
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
-            if (!container.getItem(slot).isEmpty()) {
-                occupied++;
-            }
-        }
-        return occupied;
+        return ScenarioInventory.countNonEmptyContainerSlots(arena, x, y, z);
     }
 
     private static String shulkerWithItems(Item[] items) {

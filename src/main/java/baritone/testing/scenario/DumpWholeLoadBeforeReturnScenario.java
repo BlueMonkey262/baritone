@@ -19,6 +19,8 @@ package baritone.testing.scenario;
 
 import baritone.testing.TestArena;
 
+import java.util.Map;
+
 /** A capable unload box must receive the whole eligible load before work resumes. */
 public final class DumpWholeLoadBeforeReturnScenario extends AbstractShulkerDumpScenario {
 
@@ -38,18 +40,24 @@ public final class DumpWholeLoadBeforeReturnScenario extends AbstractShulkerDump
     }
 
     @Override
+    public Map<String, Object> settings() {
+        Map<String, Object> settings = super.settings();
+        // The staged inventory has exactly two free slots. The setting is strict "below", so a
+        // threshold of two would not start the temporal unload assertion at scenario start.
+        settings.put("shulkerDumpWhenFreeSlotsBelow", 3);
+        return settings;
+    }
+
+    @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
         Verdict verdict = super.poll(arena, elapsedTicks);
         if (verdict == null || !verdict.pass) {
             return verdict;
         }
         int carried = countCarriedRubble(arena);
-        int boxed = 0;
-        for (var item : DUMP_ITEMS) {
-            boxed += ScenarioInventory.countContainer(arena, 2, 0, 4, item);
-        }
-        arena.note("whole-load evidence at t=%d: eligible rubble carried=%d, boxed=%d, targets remaining=0",
-                elapsedTicks, carried, boxed);
+        int boxedSlots = ScenarioInventory.countNonEmptyContainerSlots(arena, 2, 0, 4);
+        arena.note("whole-load evidence at t=%d: eligible rubble carried=%d, destination occupied slots=%d, targets remaining=0",
+                elapsedTicks, carried, boxedSlots);
         return carried == 0
                 ? Verdict.pass("the unload returned only after emptying the eligible rubble load")
                 : Verdict.fail("the clear resumed while %d eligible rubble items remained carried", carried);
