@@ -77,12 +77,13 @@ public final class RestockSyncTimeoutFallbackScenario extends TestScenario {
         arena.fill(-8, 0, -12, 16, 4, 12, "minecraft:air");
         arena.command("clear @s");
         arena.setBlock(BUILD_X, 0, 0, "minecraft:stone");
-        // A shulker cannot open when its facing side is blocked. The block is still a genuine
-        // shulker, so the candidate reaches the open attempt and exercises the sync timeout.
+        // A shulker cannot open when its facing side is blocked. Use a slab rather than a full
+        // cube: goalForBox deliberately targets a full-cube obstruction for breaking, and this
+        // scenario must reach the real open attempt instead of clearing its own fixture.
         arena.setBlock(BLOCKED_BOX_X, 0, BLOCKED_BOX_Z,
                 "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",count:"
                         + SOURCE_COUNT + ",Slot:0b}]}");
-        arena.setBlock(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z, "minecraft:stone");
+        arena.setBlock(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z, "minecraft:stone_slab[type=bottom]");
         arena.setBlock(FALLBACK_BOX_X, 0, FALLBACK_BOX_Z,
                 "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",count:"
                         + SOURCE_COUNT + ",Slot:0b}]}");
@@ -94,7 +95,7 @@ public final class RestockSyncTimeoutFallbackScenario extends TestScenario {
         return arena.stateAt(BUILD_X, 0, 0).is(Blocks.STONE)
                 && arena.stateAt(BUILD_X, 1, 0).isAir()
                 && arena.stateAt(BLOCKED_BOX_X, 0, BLOCKED_BOX_Z).getBlock() instanceof ShulkerBoxBlock
-                && arena.stateAt(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z).is(Blocks.STONE)
+                && arena.stateAt(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z).is(Blocks.STONE_SLAB)
                 && arena.stateAt(FALLBACK_BOX_X, 0, FALLBACK_BOX_Z).getBlock() instanceof ShulkerBoxBlock
                 && ScenarioInventory.countContainer(arena, BLOCKED_BOX_X, 0, BLOCKED_BOX_Z,
                 Blocks.WHITE_CONCRETE.asItem()) == SOURCE_COUNT

@@ -49,7 +49,6 @@ public final class MineOreBehindWaterScenario extends AbstractMiningScenario {
     @Override
     public Map<String, Object> settings() {
         Map<String, Object> settings = new HashMap<>(miningSettings());
-        settings.put("allowBreak", false);
         settings.put("allowPlace", false);
         settings.put("waterCostMultiplier", 1.0D);
         return settings;

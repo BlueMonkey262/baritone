@@ -173,7 +173,18 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
                 return false;
             }
             this.initialOccupancy[i] = occupiedSlots(arena, boxes[i], 0, 4);
-            if (this.initialOccupancy[i] < 0) {
+            Map<Item, Integer> expected = contentsOf(initialBoxItems(i));
+            if (this.initialOccupancy[i] != expected.size()) {
+                return false;
+            }
+            for (Map.Entry<Item, Integer> entry : expected.entrySet()) {
+                if (ScenarioInventory.countContainer(arena, boxes[i], 0, 4, entry.getKey()) != entry.getValue()) {
+                    return false;
+                }
+            }
+        }
+        for (Item item : DUMP_ITEMS) {
+            if (ScenarioInventory.countPlayer(arena, item) != 1) {
                 return false;
             }
         }

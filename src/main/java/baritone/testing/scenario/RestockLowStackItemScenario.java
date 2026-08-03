@@ -72,8 +72,8 @@ public final class RestockLowStackItemScenario extends TestScenario {
         arena.command("clear @s");
         arena.setBlock(BUILD_X, 0, 0, "minecraft:stone");
         arena.setBlock(BOX_X, 0, BOX_Z,
-                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:blue_shulker_box\",count:"
-                        + SOURCE_COUNT + ",Slot:0b}]}");
+                "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:blue_shulker_box\",count:1,Slot:0b},"
+                        + "{id:\"minecraft:blue_shulker_box\",count:1,Slot:1b}]}");
         arena.teleport(0, 0, 0);
     }
 

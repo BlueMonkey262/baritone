@@ -48,7 +48,6 @@ public final class MineVisibleOnlyScenario extends AbstractMiningScenario {
     @Override
     public Map<String, Object> settings() {
         Map<String, Object> settings = new HashMap<>(miningSettings());
-        settings.put("allowBreak", false);
         settings.put("legitMine", true);
         settings.put("legitMineYLevel", 0);
         return settings;

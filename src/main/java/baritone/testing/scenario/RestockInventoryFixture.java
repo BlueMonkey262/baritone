@@ -18,6 +18,7 @@
 package baritone.testing.scenario;
 
 import baritone.testing.TestArena;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -57,7 +58,8 @@ final class RestockInventoryFixture {
     static boolean staged(TestArena arena, int junkSlots) {
         return occupied(arena) == junkSlots + 3
                 && ScenarioInventory.countPlayer(arena, Items.WHITE_CONCRETE) == 0
-                && protectedItemsIntact(arena);
+                && protectedItemsIntact(arena)
+                && exactJunkSlots(arena, junkSlots);
     }
 
     static int occupied(TestArena arena) {
@@ -90,5 +92,16 @@ final class RestockInventoryFixture {
             }
         }
         return ItemStack.EMPTY;
+    }
+
+    private static boolean exactJunkSlots(TestArena arena, int junkSlots) {
+        for (int i = 0; i < junkSlots; i++) {
+            ItemStack stack = arena.ctx().player().getInventory().getNonEquipmentItems().get(i + 3);
+            if (stack.isEmpty() || stack.getCount() != 1
+                    || !JUNK_IDS[i].equals(BuiltInRegistries.ITEM.getKey(stack.getItem()).toString())) {
+                return false;
+            }
+        }
+        return true;
     }
 }
