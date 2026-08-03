@@ -100,7 +100,7 @@ per-tick CPU budget, so a scenario using it is not a valid performance measureme
 47. `mine-ore-behind-water` — target whose path requires controlled water traversal.
 48. `mine-ice-variants` — normal, packed and blue ice; verify no variant is incorrectly rejected.
 49. `pickup-owned-drop-only` — old drop beside a fresh one; verify only the new expected drop is pursued.
-50. `pickup-expiry` — expected drop unreachable until association expires; verify pursuit stops.
+50. `pickup-glass-no-drop` — glass produces no drop; verify a pre-existing item remains untouched.
 
 ## Farming (51–60)
 

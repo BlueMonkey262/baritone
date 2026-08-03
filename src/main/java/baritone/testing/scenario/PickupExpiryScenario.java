@@ -26,7 +26,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-/** A recorded break with no resulting item must not leave pickup pursuing an expired expectation. */
+/** A no-drop break must not claim a pre-existing item. */
 public final class PickupExpiryScenario extends AbstractMiningScenario {
 
     private static final int TARGET_X = 5;
@@ -35,12 +35,12 @@ public final class PickupExpiryScenario extends AbstractMiningScenario {
 
     @Override
     public String name() {
-        return "pickup-expiry";
+        return "pickup-glass-no-drop";
     }
 
     @Override
     public String description() {
-        return "Expire a pickup expectation when the glass break produces no item drop";
+        return "Break glass without claiming a pre-existing glass item or leaving pickup active";
     }
 
     @Override
@@ -85,14 +85,15 @@ public final class PickupExpiryScenario extends AbstractMiningScenario {
         boolean oldAlive = this.oldDrop != null && itemEntityAlive(arena, this.oldDrop);
         boolean pickupActive = arena.baritone().getPickupBlocksProcess().isActive();
         if (broken && elapsedTicks >= 20 * 7 && oldAlive && !pickupActive
-                && countBlockEntities(arena, Items.GLASS) == 1) {
-            return Verdict.pass("the no-drop break expired its expectation and left the old entity alone");
+                && countBlockEntities(arena, Items.GLASS) == 1
+                && countPlayer(arena, Items.GLASS) == 0) {
+            return Verdict.pass("the no-drop glass break left the pre-existing entity alone");
         }
         if (broken && !oldAlive) {
-            return Verdict.fail("the pre-existing glass item was claimed while waiting for expiry");
+            return Verdict.fail("the pre-existing glass item was claimed during the no-drop check");
         }
         if (elapsedTicks >= tickBudget()) {
-            return Verdict.fail("pickup expectation did not expire: broken=%b, oldAlive=%b, pickupActive=%b, entities=%d",
+            return Verdict.fail("no-drop pickup check did not settle: broken=%b, oldAlive=%b, pickupActive=%b, entities=%d",
                     broken, oldAlive, pickupActive, countBlockEntities(arena, Items.GLASS));
         }
         return null;
