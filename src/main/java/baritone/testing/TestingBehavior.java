@@ -454,12 +454,12 @@ public final class TestingBehavior extends Behavior implements Helper {
         // renamed and moved to net.minecraft.world.level.gamerules, and doDaylightCycle became
         // advance_time rather than merely changing case. The first two suite runs sent the old
         // camelCase names, every one was rejected, and nothing noticed -- see checkForCommandError.
-        sendNow("gamerule advance_time false");
-        sendNow("gamerule advance_weather false");
-        sendNow("gamerule spawn_mobs false");
-        sendNow("gamerule random_tick_speed 0");
-        sendNow("gamerule keep_inventory true");
-        sendNow("gamerule send_command_feedback false");
+        sendNow("gamerule doDaylightCycle false");
+        sendNow("gamerule doWeatherCycle false");
+        sendNow("gamerule doMobSpawning false");
+        sendNow("gamerule randomTickSpeed 0");
+        sendNow("gamerule keepInventory true");
+        sendNow("gamerule sendCommandFeedback false");
         sendNow("time set noon");
         sendNow("weather clear");
         sendNow("difficulty peaceful");
