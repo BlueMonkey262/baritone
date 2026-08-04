@@ -39,6 +39,7 @@ public final class ContainerDepositTimeoutNoMutationScenario extends TestScenari
 
     private boolean sawBlocked;
     private boolean sawFallback;
+    private int targetsClearedAt = -1;
 
     @Override
     public String name() {
@@ -120,6 +121,17 @@ public final class ContainerDepositTimeoutNoMutationScenario extends TestScenari
         this.sawBlocked |= arena.ctx().playerFeet().distSqr(arena.at(BLOCKED_X, 0, BOX_Z)) <= 9.0;
         this.sawFallback |= arena.ctx().playerFeet().distSqr(arena.at(FALLBACK_X, 0, BOX_Z)) <= 9.0;
         if (!arena.stateAt(SECOND_TARGET_X, 0, 0).isAir()) {
+            return null;
+        }
+        if (this.targetsClearedAt < 0) {
+            this.targetsClearedAt = elapsedTicks;
+            arena.note("both clear targets became air before the deposit handoff settled; waiting for the box result");
+        }
+        if (arena.baritone().getRestockProcess() != null
+                && arena.baritone().getRestockProcess().isActive()) {
+            return null;
+        }
+        if (elapsedTicks - this.targetsClearedAt < 40) {
             return null;
         }
         int blockedWhite = ScenarioInventory.countContainer(arena, BLOCKED_X, 0, BOX_Z, Items.WHITE_CONCRETE);

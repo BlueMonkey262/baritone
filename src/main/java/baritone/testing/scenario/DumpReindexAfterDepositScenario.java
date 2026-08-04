@@ -67,6 +67,7 @@ public final class DumpReindexAfterDepositScenario extends TestScenario {
     private boolean firstTargetCleared;
     private int initialJunk;
     private int minimumJunk;
+    private int targetsClearedAt = -1;
 
     @Override
     public String name() {
@@ -149,8 +150,10 @@ public final class DumpReindexAfterDepositScenario extends TestScenario {
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
-        this.sawFirstBox |= near(arena, arena.at(FIRST_BOX_X, 0, BOX_Z));
-        this.sawSecondBox |= near(arena, arena.at(SECOND_BOX_X, 0, BOX_Z));
+        this.sawFirstBox |= ScenarioInventory.countNonEmptyContainerSlots(arena, FIRST_BOX_X, 0, BOX_Z)
+                > INITIAL_BOX_ITEMS.length;
+        this.sawSecondBox |= ScenarioInventory.countNonEmptyContainerSlots(arena, SECOND_BOX_X, 0, BOX_Z)
+                > INITIAL_BOX_ITEMS.length;
         this.firstTargetCleared |= arena.stateAt(FIRST_TARGET_X, 0, 0).isAir();
         this.minimumJunk = Math.min(this.minimumJunk, countJunk(arena));
 
@@ -164,9 +167,25 @@ public final class DumpReindexAfterDepositScenario extends TestScenario {
             }
             return null;
         }
+        if (this.targetsClearedAt < 0) {
+            this.targetsClearedAt = elapsedTicks;
+            arena.note("both clear targets became air before the unload handoff settled; waiting for both deposits");
+        }
+        if (arena.baritone().getRestockProcess() != null
+                && arena.baritone().getRestockProcess().isActive()) {
+            return null;
+        }
+        if (elapsedTicks - this.targetsClearedAt < 40) {
+            return null;
+        }
         int reduced = this.initialJunk - countJunk(arena);
+        arena.note("reindex evidence at t=%d: first occupied=%d, second occupied=%d, junk=%d/%d, targets=clear",
+                elapsedTicks,
+                ScenarioInventory.countNonEmptyContainerSlots(arena, FIRST_BOX_X, 0, BOX_Z),
+                ScenarioInventory.countNonEmptyContainerSlots(arena, SECOND_BOX_X, 0, BOX_Z),
+                countJunk(arena), this.initialJunk);
         if (!this.sawFirstBox || !this.sawSecondBox) {
-            return Verdict.fail("both clear segments completed, but the unload path visited first=%b second=%b",
+            return Verdict.fail("both clear segments completed, but the unload deposited into first=%b second=%b",
                     this.sawFirstBox, this.sawSecondBox);
         }
         if (reduced < 2) {
@@ -177,7 +196,7 @@ public final class DumpReindexAfterDepositScenario extends TestScenario {
 
     @Override
     public String timeoutDiagnosis(TestArena arena) {
-        return String.format("targets=%s/%s, firstBox=%b, secondBox=%b, junk=%d/%d, player=%s",
+        return String.format("targets=%s/%s, firstBoxDeposit=%b, secondBoxDeposit=%b, junk=%d/%d, player=%s",
                 arena.stateAt(FIRST_TARGET_X, 0, 0).getBlock().getName().getString(),
                 arena.stateAt(SECOND_TARGET_X, 0, 0).getBlock().getName().getString(),
                 this.sawFirstBox, this.sawSecondBox, countJunk(arena), this.initialJunk, arena.ctx().playerFeet());
@@ -228,7 +247,4 @@ public final class DumpReindexAfterDepositScenario extends TestScenario {
         return free;
     }
 
-    private static boolean near(TestArena arena, BetterBlockPos box) {
-        return arena.ctx().playerFeet().distSqr(box) <= 9.0;
-    }
 }

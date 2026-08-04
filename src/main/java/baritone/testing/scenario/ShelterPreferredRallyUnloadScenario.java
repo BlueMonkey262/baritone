@@ -59,6 +59,7 @@ public final class ShelterPreferredRallyUnloadScenario extends TestScenario {
     private boolean sawAlternateBox;
     private boolean sawInventoryChange;
     private boolean sawReturnToWork;
+    private boolean notedShelterSelection;
     private float initialHealth;
     private int initialJunk;
 
@@ -144,8 +145,23 @@ public final class ShelterPreferredRallyUnloadScenario extends TestScenario {
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
         this.sawDamage |= arena.ctx().player().getHealth() < this.initialHealth;
-        this.sawRallyBox |= near(arena, arena.at(RALLY_BOX_X, 0, BOX_Z));
-        this.sawAlternateBox |= near(arena, arena.at(ALTERNATE_BOX_X, 0, BOX_Z));
+        // Only shelter's retreat is in scope. The ordinary build path can legitimately pass near
+        // a depot before the zombie lands its first hit; counting that as a shelter choice makes
+        // the negative guard report a false alternate-first failure.
+        if (this.sawDamage) {
+            this.sawRallyBox |= near(arena, arena.at(RALLY_BOX_X, 0, BOX_Z));
+            this.sawAlternateBox |= near(arena, arena.at(ALTERNATE_BOX_X, 0, BOX_Z));
+            BetterBlockPos selected = arena.baritone().getShelterProcess().getRallyBox();
+            if (!this.notedShelterSelection) {
+                this.notedShelterSelection = true;
+                arena.note("post-damage shelter evidence: selected=%s, rallyNear=%b, alternateNear=%b",
+                        selected, this.sawRallyBox, this.sawAlternateBox);
+            }
+            if (selected != null && !selected.equals(arena.at(RALLY_BOX_X, 0, BOX_Z))) {
+                return Verdict.fail("shelter selected %s instead of the nearer rally box %s", selected,
+                        arena.at(RALLY_BOX_X, 0, BOX_Z));
+            }
+        }
         if (this.sawRallyBox && countJunk(arena) < this.initialJunk) {
             this.sawInventoryChange = true;
         }

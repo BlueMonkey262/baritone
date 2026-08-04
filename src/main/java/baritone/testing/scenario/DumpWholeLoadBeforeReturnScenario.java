@@ -19,6 +19,10 @@ package baritone.testing.scenario;
 
 import baritone.testing.TestArena;
 
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Blocks;
+
+import java.util.Arrays;
 import java.util.Map;
 
 /** A capable unload box must receive the whole eligible load before work resumes. */
@@ -35,6 +39,29 @@ public final class DumpWholeLoadBeforeReturnScenario extends AbstractShulkerDump
     }
 
     @Override
+    protected Item[] dumpItems() {
+        // Twenty-four junk stacks plus the three protected items leave nine free slots. The first
+        // unload fills 24 slots, then the two different clear drops leave 31 free slots; the
+        // threshold below 32 starts the second unload with a 26-stack total that fits in one box.
+        return Arrays.copyOf(DUMP_ITEMS, 24);
+    }
+
+    @Override
+    protected int expectedFreeSlots() {
+        return 9;
+    }
+
+    @Override
+    protected String targetBlockId(int index) {
+        return index == 1 ? "minecraft:dirt" : super.targetBlockId(index);
+    }
+
+    @Override
+    protected boolean targetStaged(TestArena arena, int index) {
+        return arena.stateAt(8 + index, 0, 0).is(index == 1 ? Blocks.DIRT : Blocks.STONE);
+    }
+
+    @Override
     protected int[] boxXs() {
         return new int[]{2};
     }
@@ -42,17 +69,31 @@ public final class DumpWholeLoadBeforeReturnScenario extends AbstractShulkerDump
     @Override
     public Map<String, Object> settings() {
         Map<String, Object> settings = super.settings();
-        // The staged inventory has exactly two free slots. The setting is strict "below", so a
-        // threshold of two would not start the temporal unload assertion at scenario start.
-        settings.put("shulkerDumpWhenFreeSlotsBelow", 3);
+        // The staged inventory has nine free slots. The threshold deliberately causes an initial
+        // unload, then the two different clear drops bring the post-trip free count below 32.
+        settings.put("shulkerDumpWhenFreeSlotsBelow", 32);
         return settings;
     }
+
+    private int targetsClearedAt = -1;
 
     @Override
     public Verdict poll(TestArena arena, int elapsedTicks) {
         Verdict verdict = super.poll(arena, elapsedTicks);
         if (verdict == null || !verdict.pass) {
             return verdict;
+        }
+        if (this.targetsClearedAt < 0
+                && arena.stateAt(8, 0, 0).isAir()
+                && arena.stateAt(9, 0, 0).isAir()) {
+            this.targetsClearedAt = elapsedTicks;
+        }
+        if (arena.baritone().getRestockProcess() != null
+                && arena.baritone().getRestockProcess().isActive()) {
+            return null;
+        }
+        if (this.targetsClearedAt >= 0 && elapsedTicks - this.targetsClearedAt < 40) {
+            return null;
         }
         int carried = countCarriedRubble(arena);
         int boxedSlots = ScenarioInventory.countNonEmptyContainerSlots(arena, 2, 0, 4);
