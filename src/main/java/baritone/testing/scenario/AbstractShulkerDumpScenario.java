@@ -96,6 +96,24 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
         return 2;
     }
 
+    /** The block used for each clear target; subclasses can choose distinct drops for a fixture. */
+    protected String targetBlockId(int index) {
+        return "minecraft:stone";
+    }
+
+    protected boolean targetStaged(TestArena arena, int index) {
+        return arena.stateAt(TARGET_X + index, 0, TARGET_Z).is(Blocks.STONE);
+    }
+
+    /** The eligible inventory stacks staged by this scenario. */
+    protected Item[] dumpItems() {
+        return DUMP_ITEMS;
+    }
+
+    protected int expectedFreeSlots() {
+        return 2;
+    }
+
     protected boolean requiresCapacityPreference() {
         return false;
     }
@@ -142,7 +160,7 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
         arena.fill(FLOOR_MIN_X, -3, FLOOR_MIN_Z, FLOOR_MAX_X, -1, FLOOR_MAX_Z, "minecraft:stone");
         arena.fill(FLOOR_MIN_X, 0, FLOOR_MIN_Z, FLOOR_MAX_X, 4, FLOOR_MAX_Z, "minecraft:air");
         arena.command("clear @s");
-        for (Item item : DUMP_ITEMS) {
+        for (Item item : dumpItems()) {
             arena.command("give @s " + BuiltInRegistries.ITEM.getKey(item) + " 1");
         }
         // These three are the independent control items. Diamonds and a totem specifically close
@@ -150,7 +168,9 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
         arena.command("give @s minecraft:diamond 1");
         arena.command("give @s minecraft:totem_of_undying 1");
         arena.command("give @s minecraft:diamond_pickaxe 1");
-        arena.fill(TARGET_X, 0, TARGET_Z, TARGET_X + targetBlocks() - 1, 0, TARGET_Z, "minecraft:stone");
+        for (int index = 0; index < targetBlocks(); index++) {
+            arena.setBlock(TARGET_X + index, 0, TARGET_Z, targetBlockId(index));
+        }
         int[] boxes = boxXs();
         for (int i = 0; i < boxes.length; i++) {
             arena.setBlock(boxes[i], 0, 4, shulkerWithItems(initialBoxItems(i)));
@@ -160,8 +180,8 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
 
     @Override
     public boolean stagingComplete(TestArena arena) {
-        for (int x = TARGET_X; x < TARGET_X + targetBlocks(); x++) {
-            if (!arena.stateAt(x, 0, TARGET_Z).is(Blocks.STONE)) {
+        for (int index = 0; index < targetBlocks(); index++) {
+            if (!targetStaged(arena, index)) {
                 return false;
             }
         }
@@ -182,7 +202,7 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
                 }
             }
         }
-        for (Item item : DUMP_ITEMS) {
+        for (Item item : dumpItems()) {
             if (ScenarioInventory.countPlayer(arena, item) != 1) {
                 return false;
             }
@@ -190,7 +210,7 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
         return ScenarioInventory.countPlayer(arena, Items.DIAMOND) == 1
                 && ScenarioInventory.countPlayer(arena, Items.TOTEM_OF_UNDYING) == 1
                 && ScenarioInventory.countPlayer(arena, Items.DIAMOND_PICKAXE) == 1
-                && freeSlots(arena) == 2
+                && freeSlots(arena) == expectedFreeSlots()
                 && ScenarioInventory.countPlayer(arena, Items.COBBLESTONE) == 0;
     }
 
@@ -312,9 +332,10 @@ abstract class AbstractShulkerDumpScenario extends TestScenario {
                 + ", player=" + arena.ctx().playerFeet();
     }
 
-    protected static int countCarriedRubble(TestArena arena) {
+    protected final int countCarriedRubble(TestArena arena) {
         int count = ScenarioInventory.countPlayer(arena, Items.COBBLESTONE);
-        for (Item item : DUMP_ITEMS) {
+        count += ScenarioInventory.countPlayer(arena, Items.DIRT);
+        for (Item item : dumpItems()) {
             count += ScenarioInventory.countPlayer(arena, item);
         }
         return count;

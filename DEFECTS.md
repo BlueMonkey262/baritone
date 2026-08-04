@@ -52,7 +52,7 @@ are intentionally not triaged here.
 | UB6 | UNTRACKED_BUG_REVIEW.md | Deposit timeout excludes the box later | medium | FORK | FIXED | None |
 | UB7 | UNTRACKED_BUG_REVIEW.md | Threat hit history has live capacity | low | FORK | FIXED | ThreatBehaviorTest |
 | UB8 | UNTRACKED_BUG_REVIEW.md | Pickup binds one expected entity | low | FORK | FIXED | PickupBlocksProcessTest |
-| U-local-01 | UPSTREAM_BUG_BACKLOG.md | Unreachable target is replanned too often | high† | FORK | OPEN | unreachable-build-target |
+| U-local-01 | UPSTREAM_BUG_BACKLOG.md | Unreachable target is replanned too often | high† | FORK | OPEN | unreachable-build-target, builder-orient-timeout-independent-target |
 | U-local-02 | UPSTREAM_BUG_BACKLOG.md | Up-facing placement windows now agree | high† | FORK | FIXED | build-observers |
 | U-local-03 | UPSTREAM_BUG_BACKLOG.md | Repeater delay needs post-placement interaction | medium† | FORK | OPEN | repeaters-delays |
 | U-local-04 | UPSTREAM_BUG_BACKLOG.md | Hopper facing is falsely called missing | high† | FORK | FIXED | hoppers-facing (curated) |
@@ -333,8 +333,10 @@ one-time binding cases. Origin is FORK.
 This remains OPEN. The current commit-aware code still returns a fresh
 `FORCE_REVALIDATE_GOAL_AND_PATH` on the measured path at `BuilderProcess.java:1196-1207`; the
 uncurated scenario counts repeated identical searches and fails above its bound at
-`UnreachableBuildTargetScenario.java:124-140`. The exact evidence needed for closure is a bounded
-result without repeated identical searches, while reachable builds remain green. Origin is FORK:
+`UnreachableBuildTargetScenario.java:124-140`; the oriented-target variant also left its independent
+target air while the builder remained active for its full budget. The exact evidence needed for
+closure is a bounded result without repeated identical searches or unrelated-target starvation,
+while reachable builds remain green. Origin is FORK:
 the relevant `commitAwarePathingCommand` is fork-added by `5f86abfb`, not an upstream symbol. Test
 coverage: `unreachable-build-target` currently reproduces the defect.
 

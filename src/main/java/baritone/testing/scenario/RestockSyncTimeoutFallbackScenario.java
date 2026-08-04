@@ -78,12 +78,13 @@ public final class RestockSyncTimeoutFallbackScenario extends TestScenario {
         arena.fill(-8, 0, -12, 16, 4, 12, "minecraft:air");
         arena.command("clear @s");
         arena.setBlock(BUILD_X, 0, 0, "minecraft:stone");
-        // A shulker facing up cannot open through an unbreakable lid. The obstruction must remain
-        // in place: allowBreak is enabled, so a breakable lid would only repair this fixture.
+        // A shulker cannot open through a breakable lid, but the path goal must still be a reachable
+        // adjacent position. A full cube makes goalForBox target the obstruction itself; with
+        // allowBreak enabled that can strand the fallback test before the real open timeout.
         arena.setBlock(BLOCKED_BOX_X, 0, BLOCKED_BOX_Z,
                 "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",count:"
                         + SOURCE_COUNT + ",Slot:0b}]}");
-        arena.setBlock(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z, "minecraft:bedrock");
+        arena.setBlock(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z, "minecraft:stone_slab[type=bottom]");
         arena.setBlock(FALLBACK_BOX_X, 0, FALLBACK_BOX_Z,
                 "minecraft:shulker_box[facing=up]{Items:[{id:\"minecraft:white_concrete\",count:"
                         + SOURCE_COUNT + ",Slot:0b}]}");
@@ -95,7 +96,7 @@ public final class RestockSyncTimeoutFallbackScenario extends TestScenario {
         return arena.stateAt(BUILD_X, 0, 0).is(Blocks.STONE)
                 && arena.stateAt(BUILD_X, 1, 0).isAir()
                 && arena.stateAt(BLOCKED_BOX_X, 0, BLOCKED_BOX_Z).getBlock() instanceof ShulkerBoxBlock
-                && arena.stateAt(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z).is(Blocks.BEDROCK)
+                && arena.stateAt(BLOCKED_BOX_X, 1, BLOCKED_BOX_Z).is(Blocks.STONE_SLAB)
                 && arena.stateAt(FALLBACK_BOX_X, 0, FALLBACK_BOX_Z).getBlock() instanceof ShulkerBoxBlock
                 && ScenarioInventory.countContainer(arena, BLOCKED_BOX_X, 0, BLOCKED_BOX_Z,
                 Blocks.WHITE_CONCRETE.asItem()) == SOURCE_COUNT
@@ -138,6 +139,8 @@ public final class RestockSyncTimeoutFallbackScenario extends TestScenario {
                 arena, BLOCKED_BOX_X, 0, BLOCKED_BOX_Z, Blocks.WHITE_CONCRETE.asItem());
         int fallback = ScenarioInventory.countContainer(
                 arena, FALLBACK_BOX_X, 0, FALLBACK_BOX_Z, Blocks.WHITE_CONCRETE.asItem());
+        arena.note("sync-timeout evidence at t=%d: reachedBlocked=%b, blocked stock=%d, fallback stock=%d",
+                elapsedTicks, this.reachedBlockedBox, blocked, fallback);
         if (!this.reachedBlockedBox) {
             return Verdict.fail("the build completed without reaching the blocked first box, so no sync timeout was exercised");
         }

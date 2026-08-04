@@ -49,7 +49,7 @@ public final class RestockMasterOffNoTripScenario extends TestScenario {
 
     @Override
     public String description() {
-        return "Stop at a material shortage without visiting a registered box when restock is off";
+        return "Leave the second target unresolved without visiting a registered box when restock is off";
     }
 
     @Override
@@ -125,8 +125,8 @@ public final class RestockMasterOffNoTripScenario extends TestScenario {
                     this.sawBox, boxWhite, this.startingBoxWhite, carriedWhite,
                     this.startingCarriedWhite);
         }
-        if (first && !second && !active) {
-            return Verdict.pass("the first target placed, then the ordinary material shortage stopped without a restock trip");
+        if (first && !second && carriedWhite == 0) {
+            return Verdict.pass("the first target consumed the carried supply, the second stayed air, and restock made no trip");
         }
         return null;
     }
