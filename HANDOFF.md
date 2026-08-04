@@ -1,7 +1,7 @@
-# Handoff — 2026-08-02
+# Handoff — 2026-08-03
 
-State: **v0.1.1 released**. Trunk is `shulker-restock` at `35881fca`, clean. Supersedes the
-2026-08-01 handoff.
+State: **v0.2 is functionally complete and unreleased.** Trunk is `shulker-restock`, clean, gate
+green. Supersedes the 2026-08-02 handoff.
 
 ## Naming history
 
@@ -12,112 +12,98 @@ their notes and jar filenames say so. Do not retitle them. v0.2 is the first rel
 its notes should mention the rename, or users comparing them will reasonably think these are
 different projects.
 
-## Where things are
+## What v0.2 is
 
-`ROADMAP.md` is still the plan. Phase 0 and 2a are done; Phase 1 (defect debt) is in progress.
-`V0.2-PLAN.md` (on `fix/shelter-diagnostic`, not yet on trunk) is the new multi-version plan.
+Seven Minecraft versions, each with a branch that builds, passes both gates, and **has been run in a
+real world**:
 
-**The regression net, unchanged and still the thing to rely on:**
+| Version | Branch | Curated | Baseline |
+|---|---|---|---|
+| 26.1.2 | `shulker-restock` (canonical) | 33/33 | `baseline.json` |
+| 1.21.11 | `tenor/1.21.11` | 33/33 | recorded |
+| 26.2 | `tenor/26.2` | 33/33 | recorded |
+| 1.21.1 | `tenor/1.21.1` | 33/33 | recorded |
+| 1.21.4 | `tenor/1.21.4` | 32/33 | recorded |
+| 1.20.1 | `tenor/1.20.1` + `fix/restock-1.20.1` | 33/33 | recorded |
+| 1.20.4 | `tenor/1.20.4` | 33/33 | recorded |
 
-- `./gradlew :test` — 115 tests green (was 108; `ToolSetTest` added 7)
-- Curated in-game suite — **33/33 across three clients, 205s** (baseline 208s, no drift)
-- `scripts/testing/diff_baseline.py` compares a run to `scripts/testing/baseline.json`
+1.21.4's single failure is T-02, the intermittent that also occurs on 26.1.2 and 26.2. It is not
+specific to that version.
 
-## Released: v0.1.1
+Also on trunk: the Tenor rename, `archives_base_name=tenor`, `mod_version=0.2.0`, the multi-version
+goal in FORK-NOTES, the raw ore/flint deposit feature, tool swap-back, and 91 uncurated scenarios.
 
-https://github.com/BlueMonkey262/baritone/releases/tag/v0.1.1 — pre-release, 12 jars, all four
-loaders. Still named **Continuo**; Eli chose to defer the Tenor rename ("early access, just me and a
-friend, building continuo is okay until the next release").
+## What is left, in order
 
-Headline change: **`itemSaver` now actually stops tools breaking.** Upstream's javadoc promised it
-and the code only filtered slot selection. Enforced in `BlockBreakHelper#tick`, the single choke
-point every block break passes through. See `FORK-NOTES.md` §2a for the full reasoning.
+**1. Tag and release.** Nothing technical blocks this. `build.gradle` already derives the version
+from `git describe` when it finds a `v`-prefixed tag, so tagging `v0.2.0-mc26.1.2` produces
+`tenor-standalone-fabric-0.2.0-mc26.1.2.jar` with no build change. One release per version.
 
-`26.1.2_copy` is running this build (`continuo-standalone-fabric-0.1.1.jar`, verified single jar,
-md5 matches `dist/`).
+**2. Finish validating the scenarios.** 91 are registered; **35 have ever run.** Of those, 18 passed
+first time, 15 were fixed, 2 are deliberately red (below). The remaining ~56 are untested claims:
+they compile and follow the conventions, but nothing demonstrates they can fail for the right reason.
+That is the gap between "we have a hundred scenarios" and "we have a hundred tests".
 
-## Branches
+**3. Promote validated scenarios to curated** — only after they have passed a real run.
 
-| Branch | State |
-|---|---|
-| `shulker-restock` | **Trunk.** `35881fca`. Clean. No `main` exists in this fork |
-| `fix/shelter-diagnostic` | 2 commits, **local only**. Shelter message fix + V0.2 plan + ROADMAP entry |
-| `phase-1/defect-triage` | Pushed. Holds `ee9107b0` (Tenor rename) **and duplicates** of the two itemSaver commits under old SHAs — backup only, do not merge as-is |
-| `tenor/1.21.11` | Being created by Codex right now — see below |
+**4. Backport per the policy in `V0.2-PLAN.md` §6a.** Fixes always; scenarios only when they protect
+the player's belongings or the harness's honesty, and only after passing on the canonical branch.
+Trunk is ~30 commits ahead of the version branches.
 
-**The rename, when you want it:** cherry-pick only `ee9107b0` onto a fresh branch off trunk. Do not
-merge `phase-1/defect-triage`; it would replay the itemSaver change on top of itself.
+**5. CI matrix**, 7 versions × 4 loaders.
 
-## In flight: Codex is porting to 1.21.11
+## Open defects
 
-`codex-baritone-3` is running step 2 of `V0.2-PLAN.md` — port the fork to 1.21.11 on branch
-`tenor/1.21.11`. Brief is in `CODEX-TASK-1.21.11.md` (untracked, repo root, delete when done).
+- **T-02** — a down-facing observer sometimes never gets placed, ~1 client in 9, on 26.1.2, 26.2 and
+  1.21.4. The scenario's own fixture is the prime suspect: it stages a block directly above the
+  target in the same column while its javadoc calls it an "adjacent ledge", and that block sits
+  exactly where it can occlude the placement ray. **Rule the fixture out before touching the
+  builder.**
+- **T-04** — a mine quantity ignores matching drops already held. Origin is probably UPSTREAM;
+  `BlockOptionalMeta` is unmodified against `upstream/26.1`.
+- **T-05** — a full-inventory retry can skip the capacity-recovery deposit.
 
-Gates it must pass: `./gradlew :test` green, `./gradlew build` all four loaders. It was told not to
-push, not to touch other branches, and not to change behaviour. **Verify its report against the
-diff** — see the process note at the bottom.
+T-04 and T-05 each have a scenario that **fails on purpose**: `mine-existing-quantity` and
+`container-exact-deposit-destination`. Do not "fix" them. They are the only mechanical record those
+defects exist, and making them green erases it.
 
-The specific thing to check: our code was written for Java 25 and 1.21.11 builds on Java 21. Whether
-we use any Java 22+ construct is unknown, and finding out is part of that task.
+## What this week actually cost, and why
 
-## v0.2 — multi-version
+The ports were cheap and behaved as `V0.2-PLAN.md` predicted — three colliding files each, mechanical
+renames. **The expensive part was the harness**, and every expensive failure had one shape: *an
+instrument that could not see reported a plausible zero instead of an error.*
 
-Full plan in `V0.2-PLAN.md`. The load-bearing measurements:
+- The container oracle read the client copy, then the wrong hash bucket, and answered 0 rather than
+  "unknown". That produced two confident, wrong conclusions — that junk depositing was broken, and
+  later that the deposit path was destroying player items. Neither was true. (T-01, fixed:
+  `BetterBlockPos.hashCode` differs from the plain `BlockPos` that `LevelChunk` keys entities by.)
+- A rejected staging command reported the server's error text and not the command, so two days of
+  `STAGING_FAILED` were diagnosed by guessing. The harness now records what it sent, and the cause
+  fell out in minutes: six gamerules renamed between 1.21.4 and 1.21.11.
+- Staging asserted a shulker box existed but never its contents, so a 1.20.1 fixture placed empty
+  boxes for a day and looked like a restocking defect. (Item NBT changed at 1.20.5.)
+- A sampling loop reported "4 passed, 0 failed" when it had taken 4 samples instead of 12.
 
-- Our fork vs `upstream/26.1`: 90 files, **+16,025 / −152** — almost entirely new files, which is
-  why version ports barely touch us
-- `upstream/1.21.11` → `26.1`: 35 files, +93/−97
-- `upstream/26.1` → `26.2`: 23 files, +135/−168
-- **Only 3 files collide per port**, and the changes are mechanical API renames
-
-Scope: **1.21.11, 26.1.2, 26.2**. 26.3 is snapshot-only (Mojang manifest: latest release is 26.2,
-latest snapshot 26.3-snapshot-6), so it gets a tracking branch and no tag.
-
-**Standing decision: we do our own version ports**, rather than waiting on upstream branches or PRs.
-Upstream's ports stay a reference we may read and copy freely — same LGPL, same project — but not a
-dependency. Upstream PR #5076 is a complete four-loader 26.2 port and is worth diffing against as a
-check. (An earlier worry that 26.2 Forge might not exist upstream was wrong.)
-
-Two open questions in §9: the tag scheme (`v0.2.0-mc26.2` recommended for sortability, vs
-`v0.2-26.2` as first proposed), and whether to fold the Tenor rename into step 1.
-
-## Open work
-
-- **`FarmProcess` gap** — it forces `CLICK_LEFT` and gets `itemSaver`'s suppression but not the
-  fetch-or-stop escalation, so with the setting on it would stall quietly. Narrow (crops need no
-  tool) but real, and shipped in v0.1.1.
-- **No in-game coverage for `itemSaver`** — the 33/33 run proves no regression, but the setting
-  defaults off and no scenario enables it, so the new path has never run in a world. A scenario
-  staging a near-broken pickaxe plus a stocked box is the missing piece.
-- **Raw ore and flint deposit** — requested from live play, recorded in `ROADMAP.md` Phase 4. Not a
-  one-liner: the `BlockItem` test in `RestockProcess#isJunk` is what stops a deposit trip filing away
-  diamonds and totems, so it needs an explicit bulk-item allowance, not a loosening.
-- **`DEFECTS.md`** — M2, L3 and L4 were closed this session. Still open: H4 residual, H6/H8
-  residuals, U-local-01, U-local-03, F1.
+`FORK-NOTES.md` §7 now requires scenarios to show the measurement their verdict rests on, for exactly
+this reason. When you next add an instrument to this harness, make it able to say *unknown*.
 
 ## Process notes worth keeping
 
-**Do not paste multi-line prompts into Codex over tmux.** It killed the session outright — fresh
-banner, new session id, prompt never ran. Write the brief to a file in the repo and send a one-line
-prompt pointing at it, then send Enter as a separate keystroke. That works reliably. The old
-`tmux load-buffer` + `paste-buffer -p` recipe is no longer dependable at this size.
+**Verify a claim by compiling it, not by believing it.** `DEFECTS.md` T-03 said the 1.21.1 port
+dropped a guard the version supports. Restoring it failed with `cannot find symbol` — the component
+does not exist there. Three ledger entries were wrong this week, all written confidently from a
+single observation.
 
-**Watch for compound shell commands where an early step fails.** A `gh pr create` failed on a missing
-`--body` and the `git push --delete` on the next line ran anyway, deleting the only branch holding
-the full stack before anything had merged. Recovered only because the commit SHAs had been printed
-moments earlier and nothing had run `git gc`. Print SHAs before destructive operations.
+**A failing test and a broken test are different things.** Twice, a correction pass nearly erased a
+real finding by making a red scenario green.
 
-**Stacked PRs do not retarget unless you delete the base branch.** All three PRs merged
-"successfully" and trunk still had only the first one's content — each merge landed in its own base
-branch. Verify trunk after merging a stack rather than assuming.
+**Scenarios written without ever running fail on their own assumptions, not the mod's behaviour.**
+35 met reality: 17 failed and only 2 were real defects. The commonest fault by far was a verdict
+gated on the job *finishing* when the correct behaviour is the job *stopping*.
 
-**Verify what agents report.** Codex's sweep this session was accurate and genuinely useful — it
-found the `BlockBreakHelper` choke point that turned an eight-call-site change into a single guard —
-but every load-bearing claim was checked against the source before being acted on. Keep doing that.
+**Do not put a Gradle home under `/tmp` on this machine.** It is tmpfs. Twelve of them reached 18G of
+RAM and were the main cause of an out-of-memory crash. Use `/home/eli/.gradle-isolated`.
 
-## Housekeeping
-
-- `CODEX-TASK-1.21.11.md` — untracked, delete once the port lands
-- Stale PrismLauncher clones `baritone-testing(1)`, `(2)`, `-4` — still there, several hundred MB
-- An orphaned Minecraft JVM was killed this session (27 hours old, 5.2 GB resident). Worth checking
-  for others; they do not reliably exit
+**Identify a JVM by its own argv, never its parent.** PrismLauncher is single-instance: one launcher
+process parents every instance started afterwards, and its argv still names the first one. That
+reasoning killed the user's game. `parallel_run.py`'s reaper already did this correctly.
