@@ -19,7 +19,6 @@ package baritone.testing.scenario;
 
 import baritone.testing.TestArena;
 
-import static baritone.testing.scenario.AbstractShulkerDumpScenario.countCarriedRubble;
 
 /** Zero configured throwaway reserves makes every eligible rubble stack unloadable. */
 public final class DumpKeepThrowawayZeroScenario extends AbstractShulkerDumpScenario {
