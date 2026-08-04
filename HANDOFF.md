@@ -1,7 +1,17 @@
-# Handoff — 2026-08-03
+# Handoff — 2026-08-03 (second)
 
 State: **v0.2 is functionally complete and unreleased.** Trunk is `shulker-restock`, clean, gate
-green. Supersedes the 2026-08-02 handoff.
+green, fully pushed. 38 branches on origin. Supersedes the earlier 2026-08-03 handoff.
+
+## Three things are waiting on a decision, not on work
+
+1. **A batched verification run.** Everything pending needs exactly one launch: pass 2's six
+   corrections, wave 4's fifteen first-timers, the curated gate, and the three deliberately-red
+   scenarios. The jar is built: `dist/tenor-unoptimized-fabric-0.1.1-23-gcab3c2f8.jar`. Eli asked
+   that game launches be batched — Minecraft windows steal focus — so do not run these piecemeal.
+2. **Push `ci/version-matrix`.** Committed, not pushed, because pushing triggers Actions runs across
+   branches. Nothing proves a workflow change until it runs.
+3. **Tag and release.** Nothing technical blocks it.
 
 ## Naming history
 
@@ -39,10 +49,23 @@ goal in FORK-NOTES, the raw ore/flint deposit feature, tool swap-back, and 91 un
 from `git describe` when it finds a `v`-prefixed tag, so tagging `v0.2.0-mc26.1.2` produces
 `tenor-standalone-fabric-0.2.0-mc26.1.2.jar` with no build change. One release per version.
 
-**2. Finish validating the scenarios.** 91 are registered; **35 have ever run.** Of those, 18 passed
-first time, 15 were fixed, 2 are deliberately red (below). The remaining ~56 are untested claims:
-they compile and follow the conventions, but nothing demonstrates they can fail for the right reason.
-That is the gap between "we have a hundred scenarios" and "we have a hundred tests".
+**2. Finish validating the scenarios.** 106 are registered; **35 have ever run.** Of those, 18 passed
+first time, 15 were fixed across two correction passes, 3 are deliberately red (below). The other
+**71 are untested claims**: they compile and follow every convention, but nothing demonstrates they
+can fail for the right reason. That is the gap between "we have a hundred scenarios" and "we have a
+hundred tests", and it is the single largest piece of remaining work.
+
+**Do not write more scenarios until these are validated.** ~120 backlog proposals remain in
+`TEST_BACKLOG_V2.md` and it is tempting to keep going, but authorship has not been the constraint
+since wave 2. Producing claims faster than they can be checked is what put 17 of 35 in the failure
+column.
+
+*A measurement worth completing:* waves 1-3 were written from the backlog by an author who had never
+seen a run, and failed 17 of 35 on first contact. Wave 4 was the first briefed with the failure
+taxonomy from real results, and required each scenario to name the world state proving the behaviour
+correct. **Its first-run failure rate against 17/35 tells you whether briefing is a real lever.** If
+it is, later waves get much cheaper; if not, the run-triage-fix loop is irreducible and should be
+planned for rather than optimised away.
 
 **3. Promote validated scenarios to curated** — only after they have passed a real run.
 
@@ -50,7 +73,12 @@ That is the gap between "we have a hundred scenarios" and "we have a hundred tes
 the player's belongings or the harness's honesty, and only after passing on the canonical branch.
 Trunk is ~30 commits ahead of the version branches.
 
-**5. CI matrix**, 7 versions × 4 loaders.
+**5. CI** — done on `ci/version-matrix`, unpushed. Note this deliberately does **not** implement
+`V0.2-PLAN.md` §8 step 7's 7x4 matrix job. CI already runs on every branch, so each version branch
+tests itself with its own `gradle.properties`; a single matrix would have to check out other
+branches, and a push to one version would report failures belonging to another. The matrix already
+existed — it just hardcoded `java-version: 25`, which is wrong for the branches needing 21 or 17, and
+assumed four loaders when 1.20.1 ships three.
 
 ## Open defects
 
@@ -62,9 +90,13 @@ Trunk is ~30 commits ahead of the version branches.
 - **T-04** — a mine quantity ignores matching drops already held. Origin is probably UPSTREAM;
   `BlockOptionalMeta` is unmodified against `upstream/26.1`.
 - **T-05** — a full-inventory retry can skip the capacity-recovery deposit.
+- **U-local-01** — `builder-orient-timeout-independent-target` fails against it: an independent,
+  reachable target with its own material was left air while the builder stayed active for 3,600
+  ticks. Pass 2 declined to "fix" that scenario, correctly.
 
-T-04 and T-05 each have a scenario that **fails on purpose**: `mine-existing-quantity` and
-`container-exact-deposit-destination`. Do not "fix" them. They are the only mechanical record those
+Three scenarios **fail on purpose**: `mine-existing-quantity` (T-04),
+`container-exact-deposit-destination` (T-05) and `builder-orient-timeout-independent-target`
+(U-local-01). Do not "fix" them. They are the only mechanical record those
 defects exist, and making them green erases it.
 
 ## What this week actually cost, and why
@@ -100,6 +132,12 @@ real finding by making a red scenario green.
 **Scenarios written without ever running fail on their own assumptions, not the mod's behaviour.**
 35 met reality: 17 failed and only 2 were real defects. The commonest fault by far was a verdict
 gated on the job *finishing* when the correct behaviour is the job *stopping*.
+
+**A clean merge says nothing about whether the result compiles.** Two sessions working from the same
+base each produced correct changes that did not build together: one turned
+`AbstractShulkerDumpScenario.countCarriedRubble` from `static` into an instance method, the other
+static-imported it. Git reported both merges clean and trunk was briefly broken. Compile after
+merging branches that touch a shared base class.
 
 **Do not put a Gradle home under `/tmp` on this machine.** It is tmpfs. Twelve of them reached 18G of
 RAM and were the main cause of an out-of-memory crash. Use `/home/eli/.gradle-isolated`.
