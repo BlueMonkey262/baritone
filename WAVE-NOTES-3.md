@@ -30,4 +30,36 @@
 
 `path-right-click-arrival-off` — the player reached the chest’s goal area with `get-to` inactive and no container menu open. The empty chest, south-facing state, and goal-area radius are flagged interaction/pathing fixture assumptions.
 
+## Wave 4 notes
+
+`restock-index-off-speculative` — selected because the backlog’s index-off state is not registered yet; correctness is a first target placed before the player reaches the unindexed box, followed by the source changing from white=2 to 1 and carried white returning to 0.
+
+`restock-negative-extra-stacks-clamped` — selected as the numeric-boundary companion to the existing zero-surplus case; correctness is all two white targets placed with the source reduced from white=2 to 0 and no white left carried, proving the negative value behaved as zero.
+
+`dump-keep-throwaway-zero` — selected to cover the zero-reserve branch beside the existing one-stack reserve; correctness is the clear completing with eligible rubble absent from the player and present in the registered box while protected diamond, totem, and pickaxe counts remain unchanged.
+
+`dump-full-depot-bounded` — selected as a live guard for fixed H9/full-capacity recovery; correctness is both clear targets becoming air, the measured 27-slot depot staying full, and nonzero rubble remaining carried after one depot visit and a stopped builder.
+
+`shelter-unload-disabled-still-shelters` — selected to separate retreat from the optional unload handoff; correctness is hostile health loss followed by arrival at the rally box while its measured occupied-slot count remains zero.
+
+`itemsaver-pillar-break` — selected because the movement-pillar break-above path is not covered by ordinary mining/item-saver tests; correctness is the overhead stone and the damage-50 wooden pickaxe both remaining unchanged when the pillar attempt stops.
+
+`inventory-stationary-gate` — selected to cover the inventory/process arbitration setting; correctness is the diamond pickaxe absent from the hotbar during the approach, then present with positive damage only when the distant stone target is reached and broken.
+
+`builder-ok-if-air` — selected as an unoccupied builder acceptance policy; correctness is the configured white target remaining air while the separate required white-concrete target becomes solid.
+
+`builder-substitute-fallback-order` — selected to exercise ordered alternatives with a missing first item; correctness is the stone schematic position becoming dirt, with white concrete still absent from the player inventory.
+
+`builder-ignore-properties` — selected to cover property-level comparison beyond direction; correctness is the facing-only east/straight stair staying unchanged while the east/inner-left stair is rebuilt to north/straight.
+
+`builder-start-at-layer` — selected to add layer-offset coverage not present in the earlier builder cases; correctness is the lower stone support remaining stone while only the selected upper position becomes white concrete.
+
+`backfill-parkour-incompatible` — selected as a direct backfill/process-handoff policy guard; correctness is the sealed gap remaining air while the player crosses it and reaches the goal by parkour.
+
+`mine-explore-off-bounded` — selected to cover the no-target cancellation branch; correctness is zero stone targets, zero cobblestone, an inactive mine, and player feet still within four blocks of the staged start.
+
+`mine-axe-tool-path` — selected because tool-interface coverage has pickaxe cases but no axe-required target; correctness is the oak log gone with positive diamond-axe damage and iron-pickaxe damage still zero.
+
+`path-bottom-slab-off` — selected as an unoccupied movement-setting route choice; correctness is the player reaching the goal through the z=1 full-block route without entering x=1..4 of the intact bottom-slab shortcut.
+
 The existing wave-2 registrations `dump-prefers-capacity` and `indexboxes-all-refresh` already cover B4 and B5, so they were not duplicated. All newly staged shulkers use an empty block followed by `/item replace block`; no item NBT or renamed gamerule is embedded in wave-3 fixtures. No Minecraft/in-game suite was run by instruction; the required Gradle test is the verification gate.
